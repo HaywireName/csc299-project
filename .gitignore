@@ -1,0 +1,10 @@
+# OS-specific files
+.DS_Store
+
+# R history
+.Rhistory
+
+# App data files (JSON storage)
+# Ignore task app JSON in tasks1 and repo root
+tasks1/todos.json
+todos.json
