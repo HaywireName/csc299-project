@@ -452,11 +452,11 @@ Start with Day 1, but if you're eager to build, you can start the project alongs
 
 ### User 
 
-Create a Python CLI todo app with add, list, search, complete, and delete commands using argparse and JSON storage
+Create a Python CLI todo app with add, list, search, complete, and delete commands using argparse and JSON storage  
 
 ### Copilot Claude Sonnet 4.5
 
-I'll create a comprehensive Python CLI todo app for you with all the requested features.Now let me create a README file with usage instructions and then test the app:Now let me test the app to make sure it works correctly:Perfect! Now let me move the files to the outputs directory:Perfect! I've created a fully functional Python CLI todo app with all the requested features. Here's what's included:
+I'll create a comprehensive Python CLI todo app for you with all the requested features.Now let me create a README file with usage instructions and then test the app:Now let me test the app to make sure it works correctly:Perfect! Now let me move the files to the outputs directory:Perfect! I've created a fully functional Python CLI todo app with all the requested features. Here's what's included:  
 
 #### Features:
 
@@ -487,3 +487,46 @@ The app has been tested and works perfectly! You can run it with commands like:
 - `python todo.py search "keyword"`
 - `python todo.py complete 1`
 - `python todo.py delete 1`
+
+### User 
+
+I've created a Python CLI todo app with add, list, search, complete, and delete commands using argparse and JSON storage, but as of now it does not run in continuous loop; I have to always type "python3 todo.py" for each of the commands. i would like to code to start to run with "python3 todo.py" and use the programs commands singlehandedly in their own prompt.
+
+### Copilot GPT-5
+
+Great idea—let’s add an interactive REPL so you can run commands at your own prompt without re-invoking Python each time.  
+
+Plan:  
+
+- Refactor your CLI to construct the argparse parser once.
+- Add a REPL loop that parses input lines with shlex and reuses the same command handlers.
+- Preserve the current one-shot behavior for normal CLI use.
+
+**actions taken**  
+- Updated todo.py:  
+
+  - Added an interactive REPL that starts when you run without arguments: python3 todo.py
+  - Kept one-shot mode as-is: python3 todo.py add "Title"
+  - Refactored to:
+    - build_parser(): create the argparse parser once
+    - dispatch_command(): route parsed args to the appropriate method
+    - repl(): loop with a todo> prompt, supports help, help <cmd>, exit/quit/q
+- Updated README.md with an “Interactive mode (REPL)” section and examples.
+  
+[A Section with Command Prompts for How to Use]  
+
+**notes**  
+- The REPL uses shlex for shell-like parsing, so quotes work as expected.
+- Type help for general help, help <command> for a specific command, or exit/quit/q to leave the REPL.  
+
+**verification**  
+- One-shot mode sanity check: PASS
+- Ran: python3 tasks1/todo.py list → printed the empty-todos message as expected.
+- REPL mode sanity check: PASS
+- Piped help and exit → displayed full usage and exited cleanly.
+
+**Completion summary:**  
+- Added an interactive command loop to tasks1/todo.py while preserving existing CLI usage.
+- Documented the new mode in tasks1/README.md.
+- Verified both modes run correctly.
+
