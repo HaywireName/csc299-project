@@ -1,14 +1,15 @@
-# Todo CLI App
+# Task CLI App
 
-A simple command-line todo application built with Python, using argparse for CLI handling and JSON for data storage.
+A simple command-line task application built with Python, using argparse for CLI handling and JSON for data storage.
 
 ## Features
 
-- ✅ **Add** todos with title and optional description
-- 📋 **List** todos (all or just incomplete ones)
-- 🔍 **Search** todos by title or description
-- ✓ **Complete** todos
-- ✗ **Delete** todos
+- ✅ **Add** tasks with title and optional description
+- 📋 **List** tasks (all or just incomplete ones)
+- 🔍 **Search** tasks by title or description
+- ✓ **Complete** tasks
+- ✗ **Delete** tasks
+- 🧹 **Clean** completed tasks (remove all completed)
 - 💾 Persistent storage using JSON
 
 ## Installation
@@ -19,7 +20,7 @@ This is a standalone project - no version control setup needed.
 
 ```bash
 # Make the script executable (optional)
-chmod +x todo.py
+chmod +x task.py
 ```
 
 ## Usage
@@ -29,71 +30,82 @@ chmod +x todo.py
 Run without arguments to start an interactive prompt:
 
 ```bash
-python todo.py
+python task.py
 ```
 
 Examples in the prompt:
 
 ```
-todo> add "Buy groceries" -d "milk, eggs, bread"
-todo> list
-todo> search groceries
-todo> complete 1
-todo> delete 1
-todo> help
-todo> help add
-todo> exit
+task> add "Buy groceries" -d "milk, eggs, bread"
+task> list
+task> search groceries
+task> complete 1
+task> delete 1
+task> clean
+task> help
+task> help add
+task> exit
 ```
 
-### Add a todo
+### Add a task
 
 ```bash
-python todo.py add "Buy groceries"
-python todo.py add "Finish project" -d "Complete the CLI app by Friday"
+python task.py add "Buy groceries"
+python task.py add "Finish project" -d "Complete the CLI app by Friday"
 ```
 
-### List todos
+### List tasks
 
 ```bash
-# List incomplete todos only
-python todo.py list
+# List incomplete tasks only
+python task.py list
 
-# List all todos (including completed)
-python todo.py list --all
-python todo.py list -a
+# List all tasks (including completed)
+python task.py list --all
+python task.py list -a
 ```
 
-### Search todos
+### Search tasks
 
 ```bash
-python todo.py search "groceries"
-python todo.py search "project"
+python task.py search "groceries"
+python task.py search "project"
 ```
 
-### Complete a todo
+### Complete a task
 
 ```bash
-python todo.py complete 1
+python task.py complete 1
 ```
 
-### Delete a todo
+### Delete tasks
 
 ```bash
-python todo.py delete 1
+# Delete specific IDs (one or many)
+python task.py delete 1 3 5
+
+# Only delete if completed
+python task.py delete 2 --completed-only
+```
+
+### Clean completed tasks
+
+```bash
+python task.py clean
 ```
 
 ### Get help
 
 ```bash
-python todo.py --help
-python todo.py add --help
+python task.py --help
+python task.py add --help
 ```
 
 ## Data Storage
 
-Todos are stored in `todos.json` in the current directory. Each todo contains:
+Tasks are stored in `tasks.json` in this directory (`tasks1/`). Each task contains:
 - `id`: Unique identifier
-- `title`: Todo title
+- `title`: Task title
 - `description`: Optional description
 - `completed`: Boolean status
 - `created_at`: ISO timestamp of creation
@@ -102,25 +114,25 @@ Todos are stored in `todos.json` in the current directory. Each todo contains:
 ## Example Workflow
 
 ```bash
-# Add some todos
-python todo.py add "Learn Python" -d "Complete the tutorial"
-python todo.py add "Build a project"
-python todo.py add "Write documentation"
+# Add some tasks
+python task.py add "Learn Python" -d "Complete the tutorial"
+python task.py add "Build a project"
+python task.py add "Write documentation"
 
-# List todos
-python todo.py list
+# List tasks
+python task.py list
 
-# Complete a todo
-python todo.py complete 1
+# Complete a task
+python task.py complete 1
 
-# Search for todos
-python todo.py search "project"
+# Search for tasks
+python task.py search "project"
 
-# List all todos including completed
-python todo.py list --all
+# List all tasks including completed
+python task.py list --all
 
-# Delete a todo
-python todo.py delete 2
+# Delete a task
+python task.py delete 2
 ```
 
 ## License

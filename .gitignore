@@ -7,4 +7,5 @@
 # App data files (JSON storage)
 # Ignore task app JSON in tasks1 and repo root
 tasks1/todos.json
+tasks1/tasks.json
 todos.json

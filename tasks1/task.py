@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-A simple CLI todo application with JSON storage.
-Supports add, list, search, complete, and delete operations.
+A simple CLI task application with JSON storage.
+Supports add, list, search, complete, delete, and clean operations.
 """
 
 import argparse
@@ -9,22 +9,39 @@ import shlex
 import json
 import os
 import sys
-import shlex
 from datetime import datetime
 from typing import List, Dict, Optional
 
 
 class TodoApp:
-    """Main todo application class."""
+    """Main task application class."""
     
-    def __init__(self, data_file: str = "todos.json"):
-        """Initialize the todo app with a data file."""
-        self.data_file = data_file
+    def __init__(self, data_file: Optional[str] = None):
+        """Initialize the task app with a data file.
+
+        Uses tasks.json stored next to this script for consistency.
+        Automatically migrates from todos.json if present.
+        """
+        base_dir = os.path.dirname(os.path.abspath(__file__))
+        # Preferred new location
+        default_tasks = os.path.join(base_dir, 'tasks.json')
+        # Legacy filename we may migrate from
+        legacy_todos = os.path.join(base_dir, 'todos.json')
+        # Allow explicit override but default to script-local file
+        self.data_file = data_file or default_tasks
+        # If using default path and legacy exists but new doesn't, migrate
+        if self.data_file == default_tasks and (not os.path.exists(default_tasks)) and os.path.exists(legacy_todos):
+            try:
+                os.replace(legacy_todos, default_tasks)
+            except OSError:
+                # Fallback: leave legacy in place; we'll read from legacy path during load
+                pass
         self.todos: List[Dict] = []
         self.load_todos()
     
     def load_todos(self) -> None:
-        """Load todos from JSON file."""
+        """Load tasks from JSON file."""
+        # Try primary file first
         if os.path.exists(self.data_file):
             try:
                 with open(self.data_file, 'r') as f:
@@ -33,10 +50,26 @@ class TodoApp:
                 print(f"Error: Could not parse {self.data_file}. Starting with empty todo list.")
                 self.todos = []
         else:
-            self.todos = []
+            # Attempt to read legacy todos.json next to the script if present
+            legacy_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'todos.json')
+            if os.path.exists(legacy_path):
+                try:
+                    with open(legacy_path, 'r') as f:
+                        self.todos = json.load(f)
+                    # Save immediately to migrate to new filename
+                    self.save_todos()
+                    try:
+                        os.remove(legacy_path)
+                    except OSError:
+                        pass
+                except json.JSONDecodeError:
+                    print(f"Error: Could not parse {legacy_path}. Starting with empty task list.")
+                    self.todos = []
+            else:
+                self.todos = []
     
     def save_todos(self) -> None:
-        """Save todos to JSON file."""
+        """Save tasks to JSON file."""
         try:
             with open(self.data_file, 'w') as f:
                 json.dump(self.todos, f, indent=2)
@@ -45,13 +78,13 @@ class TodoApp:
             sys.exit(1)
     
     def get_next_id(self) -> int:
-        """Get the next available ID for a new todo."""
+        """Get the next available ID for a new task."""
         if not self.todos:
             return 1
         return max(todo['id'] for todo in self.todos) + 1
     
     def add_todo(self, title: str, description: str = "") -> None:
-        """Add a new todo item."""
+        """Add a new task item."""
         todo = {
             'id': self.get_next_id(),
             'title': title,
@@ -62,18 +95,20 @@ class TodoApp:
         }
         self.todos.append(todo)
         self.save_todos()
-        print(f"✓ Added todo #{todo['id']}: {title}")
+        print(f"✓ Added task #{todo['id']}: {title}")
     
     def list_todos(self, show_all: bool = False) -> None:
-        """List all todos or only incomplete ones."""
+        """List all tasks or only incomplete ones, sorted by ID."""
         if not self.todos:
-            print("No todos found. Add one with 'todo add <title>'")
+            print("No tasks found. Add one with 'task add <title>'")
             return
         
         todos_to_show = self.todos if show_all else [t for t in self.todos if not t['completed']]
+        # Ensure stable, ascending order by ID
+        todos_to_show = sorted(todos_to_show, key=lambda t: t['id'])
         
         if not todos_to_show:
-            print("No incomplete todos. Great job! 🎉")
+            print("No incomplete tasks. Great job! 🎉")
             return
         
         print(f"\n{'ID':<5} {'Status':<12} {'Title':<40} {'Description':<30}")
@@ -90,7 +125,7 @@ class TodoApp:
         print(f"\nTotal: {total_count} ({completed_count} completed, {total_count - completed_count} incomplete)")
     
     def search_todos(self, query: str) -> None:
-        """Search todos by title or description."""
+        """Search tasks by title or description."""
         query_lower = query.lower()
         matches = [
             todo for todo in self.todos
@@ -98,10 +133,10 @@ class TodoApp:
         ]
         
         if not matches:
-            print(f"No todos found matching '{query}'")
+            print(f"No tasks found matching '{query}'")
             return
         
-        print(f"\nFound {len(matches)} todo(s) matching '{query}':\n")
+        print(f"\nFound {len(matches)} task(s) matching '{query}':\n")
         print(f"{'ID':<5} {'Status':<12} {'Title':<40} {'Description':<30}")
         print("-" * 90)
         
@@ -112,80 +147,109 @@ class TodoApp:
             print(f"{todo['id']:<5} {status:<12} {title:<40} {desc:<30}")
     
     def complete_todo(self, todo_id: int) -> None:
-        """Mark a todo as completed."""
+        """Mark a task as completed."""
         todo = self._find_todo(todo_id)
         if not todo:
-            print(f"Error: Todo #{todo_id} not found")
+            print(f"Error: Task #{todo_id} not found")
             return
         
         if todo['completed']:
-            print(f"Todo #{todo_id} is already completed")
+            print(f"Task #{todo_id} is already completed")
             return
         
         todo['completed'] = True
         todo['completed_at'] = datetime.now().isoformat()
-        self.save_todos()
-        print(f"✓ Completed todo #{todo_id}: {todo['title']}")
+        # After completion, reindex so oldest incomplete is #1
+        self.reindex()
+        print(f"✓ Completed task #{todo_id}: {todo['title']}")
     
     def delete_todo(self, todo_id: int) -> None:
-        """Delete a todo by ID."""
+        """Delete a task by ID."""
         todo = self._find_todo(todo_id)
         if not todo:
-            print(f"Error: Todo #{todo_id} not found")
+            print(f"Error: Task #{todo_id} not found")
             return
         
         title = todo['title']
         self.todos = [t for t in self.todos if t['id'] != todo_id]
-        self.save_todos()
-        print(f"✗ Deleted todo #{todo_id}: {title}")
+        # After deletion, reindex so remaining tasks are compacted
+        self.reindex()
+        print(f"✗ Deleted task #{todo_id}: {title}")
     
     def _find_todo(self, todo_id: int) -> Optional[Dict]:
-        """Find a todo by ID."""
+        """Find a task by ID."""
         for todo in self.todos:
             if todo['id'] == todo_id:
                 return todo
         return None
 
+    def reindex(self) -> None:
+        """Reset IDs so that oldest incomplete task has ID=1, then remaining tasks.
+
+        Ordering rules:
+        - Incomplete tasks first, ascending by created_at (fallback: stable original order)
+        - Then completed tasks, ascending by created_at (fallback as above)
+        """
+        def safe_parse(ts: Optional[str]) -> float:
+            try:
+                return datetime.fromisoformat(ts).timestamp() if ts else float('inf')
+            except Exception:
+                return float('inf')
+
+        incompletes = [t for t in self.todos if not t.get('completed')]
+        completes = [t for t in self.todos if t.get('completed')]
+        incompletes.sort(key=lambda t: (safe_parse(t.get('created_at')), t.get('id', 0)))
+        completes.sort(key=lambda t: (safe_parse(t.get('created_at')), t.get('id', 0)))
+        new_list = incompletes + completes
+        for idx, t in enumerate(new_list, start=1):
+            t['id'] = idx
+        self.todos = new_list
+        self.save_todos()
+
 
 def build_parser() -> argparse.ArgumentParser:
     """Construct and return the argument parser (without parsing)."""
     parser = argparse.ArgumentParser(
-        description="A simple CLI todo application",
+        description="A simple CLI task application",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  todo add "Buy groceries" -d "milk, eggs, bread"
-  todo list
-  todo list --all
-  todo search "groceries"
-  todo complete 1
-  todo delete 1
+  task add "Buy groceries" -d "milk, eggs, bread"
+  task list
+  task list --all
+  task search "groceries"
+  task complete 1
+  task delete 1
         """
     )
     
     subparsers = parser.add_subparsers(dest='command', help='Available commands')
     
     # Add command
-    add_parser = subparsers.add_parser('add', help='Add a new todo')
-    add_parser.add_argument('title', help='Todo title')
-    add_parser.add_argument('-d', '--description', default='', help='Todo description')
+    add_parser = subparsers.add_parser('add', help='Add a new task')
+    add_parser.add_argument('title', help='Task title')
+    add_parser.add_argument('-d', '--description', default='', help='Task description')
     
     # List command
-    list_parser = subparsers.add_parser('list', help='List todos')
+    list_parser = subparsers.add_parser('list', help='List tasks')
     list_parser.add_argument('-a', '--all', action='store_true', 
-                            help='Show all todos including completed ones')
+                            help='Show all tasks including completed ones')
     
     # Search command
-    search_parser = subparsers.add_parser('search', help='Search todos')
+    search_parser = subparsers.add_parser('search', help='Search tasks')
     search_parser.add_argument('query', help='Search query')
     
     # Complete command
-    complete_parser = subparsers.add_parser('complete', help='Mark a todo as completed')
-    complete_parser.add_argument('id', type=int, help='Todo ID to complete')
+    complete_parser = subparsers.add_parser('complete', help='Mark a task as completed')
+    complete_parser.add_argument('id', type=int, help='Task ID to complete')
     
     # Delete command
-    delete_parser = subparsers.add_parser('delete', help='Delete a todo')
-    delete_parser.add_argument('id', type=int, help='Todo ID to delete')
+    delete_parser = subparsers.add_parser('delete', help='Delete tasks by ID (supports multiple). Use --completed-only to restrict to completed tasks')
+    delete_parser.add_argument('id', type=int, nargs='+', help='Task ID(s) to delete')
+    delete_parser.add_argument('--completed-only', action='store_true', help='Only delete if the task is completed')
+
+    # Clean command
+    clean_parser = subparsers.add_parser('clean', help='Remove all completed tasks')
     
     return parser
 
@@ -201,9 +265,27 @@ def dispatch_command(app: TodoApp, args: argparse.Namespace) -> None:
     elif args.command == 'complete':
         app.complete_todo(args.id)
     elif args.command == 'delete':
-        app.delete_todo(args.id)
+        # Support deleting multiple IDs, optionally only completed
+        for tid in args.id:
+            if getattr(args, 'completed_only', False):
+                t = app._find_todo(tid)
+                if not t:
+                    print(f"Error: Task #{tid} not found")
+                    continue
+                if not t['completed']:
+                    print(f"Skip: Task #{tid} is not completed (use without --completed-only to force)")
+                    continue
+            app.delete_todo(tid)
+    elif args.command == 'clean':
+        before = len(app.todos)
+        app.todos = [t for t in app.todos if not t['completed']]
+        removed = before - len(app.todos)
+        # After cleaning, reindex automatically
+        app.reindex()
+        print(f"🧹 Removed {removed} completed task(s)")
     else:
         print("Unknown command. Type 'help' for usage.")
+
 
 def _print_help_with_repl_options(parser: argparse.ArgumentParser) -> None:
     """Print argparse help text, injecting REPL-only options under 'options:'."""
@@ -220,7 +302,7 @@ def _print_help_with_repl_options(parser: argparse.ArgumentParser) -> None:
 
 def repl(parser: argparse.ArgumentParser, app: TodoApp) -> None:
     """Start an interactive REPL to accept commands repeatedly."""
-    print("Todo CLI interactive mode. Type 'help' to see commands, 'exit' to quit.\n")
+    print("Task CLI interactive mode. Type 'help' to see commands, 'exit' to quit.\n")
     # Access subcommand names for help
     try:
         sub_map = parser._subparsers._group_actions[0].choices  # type: ignore[attr-defined]
@@ -229,7 +311,7 @@ def repl(parser: argparse.ArgumentParser, app: TodoApp) -> None:
     
     while True:
         try:
-            line = input("todo> ").strip()
+            line = input("task> ").strip()
         except (EOFError, KeyboardInterrupt):
             print()
             break
@@ -241,7 +323,7 @@ def repl(parser: argparse.ArgumentParser, app: TodoApp) -> None:
             parts = line.split(maxsplit=1)
             if len(parts) == 1:
                 _print_help_with_repl_options(parser)
-                print("Commands:", ", ".join(sorted(sub_map.keys())) if sub_map else "add, list, search, complete, delete")
+                print("Commands:", ", ".join(sorted(sub_map.keys())) if sub_map else "add, list, search, complete, delete, clean")
             else:
                 cmd = parts[1].strip()
                 sub = sub_map.get(cmd)
