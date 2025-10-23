@@ -5,9 +5,11 @@ Supports add, list, search, complete, and delete operations.
 """
 
 import argparse
+import shlex
 import json
 import os
 import sys
+import shlex
 from datetime import datetime
 from typing import List, Dict, Optional
 
@@ -145,8 +147,8 @@ class TodoApp:
         return None
 
 
-def main():
-    """Main entry point for the CLI application."""
+def build_parser() -> argparse.ArgumentParser:
+    """Construct and return the argument parser (without parsing)."""
     parser = argparse.ArgumentParser(
         description="A simple CLI todo application",
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -185,26 +187,106 @@ Examples:
     delete_parser = subparsers.add_parser('delete', help='Delete a todo')
     delete_parser.add_argument('id', type=int, help='Todo ID to delete')
     
-    args = parser.parse_args()
-    
-    if not args.command:
-        parser.print_help()
-        return
-    
-    # Initialize the app
-    app = TodoApp()
-    
-    # Execute command
+    return parser
+
+
+def dispatch_command(app: TodoApp, args: argparse.Namespace) -> None:
+    """Dispatch a parsed argparse Namespace to the appropriate handler."""
     if args.command == 'add':
         app.add_todo(args.title, args.description)
     elif args.command == 'list':
-        app.list_todos(show_all=args.all)
+        app.list_todos(show_all=getattr(args, 'all', False))
     elif args.command == 'search':
         app.search_todos(args.query)
     elif args.command == 'complete':
         app.complete_todo(args.id)
     elif args.command == 'delete':
         app.delete_todo(args.id)
+    else:
+        print("Unknown command. Type 'help' for usage.")
+
+def _print_help_with_repl_options(parser: argparse.ArgumentParser) -> None:
+    """Print argparse help text, injecting REPL-only options under 'options:'."""
+    help_text = parser.format_help()
+    marker = "\noptions:\n"
+    insert_line = "  quit, exit, q         exit the interactive prompt\n"
+    if marker in help_text:
+        idx = help_text.find(marker) + len(marker)
+        help_text = help_text[:idx] + insert_line + help_text[idx:]
+    else:
+        help_text = help_text + "\nREPL options:\n" + insert_line
+    print(help_text)
+
+
+def repl(parser: argparse.ArgumentParser, app: TodoApp) -> None:
+    """Start an interactive REPL to accept commands repeatedly."""
+    print("Todo CLI interactive mode. Type 'help' to see commands, 'exit' to quit.\n")
+    # Access subcommand names for help
+    try:
+        sub_map = parser._subparsers._group_actions[0].choices  # type: ignore[attr-defined]
+    except Exception:
+        sub_map = {}
+    
+    while True:
+        try:
+            line = input("todo> ").strip()
+        except (EOFError, KeyboardInterrupt):
+            print()
+            break
+        if not line:
+            continue
+        if line.lower() in {"exit", "quit", "q"}:
+            break
+        if line.lower().startswith("help"):
+            parts = line.split(maxsplit=1)
+            if len(parts) == 1:
+                _print_help_with_repl_options(parser)
+                print("Commands:", ", ".join(sorted(sub_map.keys())) if sub_map else "add, list, search, complete, delete")
+            else:
+                cmd = parts[1].strip()
+                sub = sub_map.get(cmd)
+                if sub is not None:
+                    print(sub.format_help())
+                else:
+                    print(f"No such command: {cmd}")
+            continue
+        
+        # Parse and execute command line
+        try:
+            argv = shlex.split(line)
+        except ValueError as e:
+            print(f"Parse error: {e}")
+            continue
+        
+        try:
+            args = parser.parse_args(argv)
+        except SystemExit:
+            # argparse attempted to exit on error; show help-like message and continue
+            continue
+        if not getattr(args, 'command', None):
+            print("Please enter a command. Type 'help' for usage.")
+            continue
+        dispatch_command(app, args)
+
+
+def main():
+    """Main entry point for the CLI application."""
+    parser = build_parser()
+    
+    # If no args provided, start REPL; else process one-shot command
+    if len(sys.argv) == 1:
+        app = TodoApp()
+        repl(parser, app)
+        return
+    
+    args = parser.parse_args()
+    if not args.command:
+        parser.print_help()
+        return
+    
+    # Initialize the app
+    app = TodoApp()
+    dispatch_command(app, args)
 
 
 if __name__ == '__main__':

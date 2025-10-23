@@ -24,6 +24,27 @@ chmod +x todo.py
 
 ## Usage
 
+### Interactive mode (REPL)
+
+Run without arguments to start an interactive prompt:
+
+```bash
+python todo.py
+```
+
+Examples in the prompt:
+
+```
+todo> add "Buy groceries" -d "milk, eggs, bread"
+todo> list
+todo> search groceries
+todo> complete 1
+todo> delete 1
+todo> help
+todo> help add
+todo> exit
+```
+
 ### Add a todo
 
 ```bash
