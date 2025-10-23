@@ -1,7 +1,7 @@
 
 # Prompt Journal
 
-## 2025-10-17 Outline a Project and a Concepts study plan  
+## 2025-10-17 Outline a Project and a Concepts study plan 
 
 ### (User)
 
@@ -448,4 +448,42 @@ The goal isn't to become an expert in 2-3 weeks, but to know enough to:
 
 Start with Day 1, but if you're eager to build, you can start the project alongside your learning after Week 1!
 
-##
+## 2025-10-22 CLI Task Manager Program stored in JSON
+
+### User 
+
+Create a Python CLI todo app with add, list, search, complete, and delete commands using argparse and JSON storage
+
+### Copilot Claude Sonnet 4.5
+
+I'll create a comprehensive Python CLI todo app for you with all the requested features.Now let me create a README file with usage instructions and then test the app:Now let me test the app to make sure it works correctly:Perfect! Now let me move the files to the outputs directory:Perfect! I've created a fully functional Python CLI todo app with all the requested features. Here's what's included:
+
+#### Features:
+
+✅ **Add** - Create new todo items
+📋 **List** - View all incomplete todos (or use `--all` to show completed ones too)
+🔍 **Search** - Find todos by keyword
+✓ **Complete** - Mark todos as done
+🗑️ **Delete** - Remove todos
+💾 **JSON Storage** - All data persists in a `todos.json` file
+
+#### Key Implementation Details:
+
+- **argparse** for clean CLI interface with subcommands
+- **JSON storage** with automatic load/save
+- Each todo has: ID, task description, completion status, and timestamps
+- Nice formatted output with status indicators (○ Pending / ✓ Done)
+- Error handling for invalid IDs and corrupted data
+- Case-insensitive search functionality
+
+#### Files:
+
+- [View todo.py](computer:///mnt/user-data/outputs/todo.py) - The main application
+- [View README.md](computer:///mnt/user-data/outputs/README.md) - Complete documentation with examples
+
+The app has been tested and works perfectly! You can run it with commands like:
+- `python todo.py add "Your task"`
+- `python todo.py list`
+- `python todo.py search "keyword"`
+- `python todo.py complete 1`
+- `python todo.py delete 1`
