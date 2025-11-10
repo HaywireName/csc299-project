@@ -1,0 +1,34 @@
+[
+  {
+    "id": 1,
+    "title": "Beta",
+    "description": "second",
+    "completed": false,
+    "created_at": "2025-10-22T22:34:49.545270",
+    "completed_at": null
+  },
+  {
+    "id": 2,
+    "title": "Alpha",
+    "description": "first",
+    "completed": false,
+    "created_at": "2025-10-22T22:35:52.999883",
+    "completed_at": null
+  },
+  {
+    "id": 3,
+    "title": "Beta",
+    "description": "second",
+    "completed": false,
+    "created_at": "2025-10-22T22:36:14.194157",
+    "completed_at": null
+  },
+  {
+    "id": 4,
+    "title": "Buy groceries",
+    "description": "",
+    "completed": true,
+    "created_at": "2025-10-22T16:55:09.667201",
+    "completed_at": "2025-10-22T16:58:14.704353"
+  }
+]
