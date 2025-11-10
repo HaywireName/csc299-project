@@ -8,4 +8,5 @@
 # Ignore task app JSON in tasks1 and repo root
 tasks1/todos.json
 tasks1/tasks.json
+tasks2/tasks.json
 todos.json
