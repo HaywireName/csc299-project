@@ -170,6 +170,8 @@ class TodoApp:
         errors = []
         already_completed = []
         
+        # First pass: collect all todo objects before making any changes
+        todos_to_complete = []
         for display_id in display_ids:
             todo = self._get_todo_by_display_id(display_id, show_all=False)
             if not todo:
@@ -180,6 +182,10 @@ class TodoApp:
                 already_completed.append(str(display_id))
                 continue
             
+            todos_to_complete.append((todo, display_id))
+        
+        # Second pass: mark all collected todos as completed
+        for todo, display_id in todos_to_complete:
             todo['completed'] = True
             todo['completed_at'] = datetime.now().isoformat()
             completed_titles.append(f"#{display_id}")
@@ -220,20 +226,24 @@ class TodoApp:
         """Delete multiple tasks by display ID."""
         deleted_ids = []
         errors = []
-        actual_ids_to_delete = []
         
+        # First pass: collect all todo objects and their actual IDs before making any changes
+        todos_to_delete = []
         for display_id in display_ids:
             todo = self._get_todo_by_display_id(display_id, show_all)
             if not todo:
                 errors.append(str(display_id))
                 continue
             
-            deleted_ids.append(f"#{display_id}")
-            actual_ids_to_delete.append(todo['id'])
+            todos_to_delete.append((todo['id'], display_id))
         
-        # Delete by actual IDs
-        for actual_id in actual_ids_to_delete:
-            self.todos = [t for t in self.todos if t['id'] != actual_id]
+        # Second pass: delete all collected todos by their actual IDs
+        actual_ids_to_delete = [actual_id for actual_id, _ in todos_to_delete]
+        for actual_id, display_id in todos_to_delete:
+            deleted_ids.append(f"#{display_id}")
+        
+        # Delete all by actual IDs in one pass
+        self.todos = [t for t in self.todos if t['id'] not in actual_ids_to_delete]
         
         if deleted_ids:
             self.reindex()
@@ -298,8 +308,8 @@ Examples:
   task list
   task list --all
   task search groceries
-  task complete 1
-  task delete 1
+  task complete 1 2 etc.
+  task delete 1 2 etc.
         """
     )
     
@@ -379,17 +389,32 @@ def dispatch_command(app: TodoApp, args: argparse.Namespace) -> None:
         # Support deleting multiple IDs, optionally only completed
         if getattr(args, 'completed_only', False):
             # Handle completed-only filtering for multiple display IDs from --all list
-            valid_ids = []
+            # First pass: collect all valid todo objects before making any changes
+            valid_todos = []
+            skipped = []
+            errors = []
+            
             for display_id in args.id:
                 t = app._get_todo_by_display_id(display_id, show_all=True)
                 if not t:
-                    print(f"Error: Task #{display_id} not found")
+                    errors.append(display_id)
                     continue
                 if not t['completed']:
-                    print(f"Skip: Task #{display_id} is not completed (use without --completed-only to force)")
+                    skipped.append(display_id)
                     continue
-                valid_ids.append(display_id)
-            if valid_ids:
+                valid_todos.append((t['id'], display_id))
+            
+            # Report errors and skips
+            if errors:
+                for display_id in errors:
+                    print(f"Error: Task #{display_id} not found")
+            if skipped:
+                for display_id in skipped:
+                    print(f"Skip: Task #{display_id} is not completed (use without --completed-only to force)")
+            
+            # Delete all valid todos
+            if valid_todos:
+                valid_ids = [display_id for _, display_id in valid_todos]
                 if len(valid_ids) == 1:
                     app.delete_todo(valid_ids[0], show_all=True)
                 else:
