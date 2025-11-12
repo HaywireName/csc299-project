@@ -291,8 +291,8 @@ Examples:
     
     # Add command
     add_parser = subparsers.add_parser('add', help='Add a new task')
-    add_parser.add_argument('title', help='Task title')
-    add_parser.add_argument('-d', '--description', default='', help='Task description')
+    add_parser.add_argument('title', nargs='*', help='Task title (can be multiple words)')
+    add_parser.add_argument('-d', '--description', nargs='*', default=[], help='Task description (can be multiple words)')
     
     # List command
     list_parser = subparsers.add_parser('list', help='List tasks')
@@ -318,10 +318,38 @@ Examples:
     return parser
 
 
+def parse_add_command(argv: List[str]) -> tuple:
+    """Custom parser for add command to handle unquoted multi-word titles and descriptions."""
+    if not argv or argv[0] != 'add':
+        raise ValueError("Not an add command")
+    
+    # Find -d flag position
+    d_index = -1
+    for i, arg in enumerate(argv[1:], 1):
+        if arg == '-d' or arg == '--description':
+            d_index = i
+            break
+    
+    if d_index == -1:
+        # No description flag, everything after 'add' is the title
+        title = ' '.join(argv[1:]).strip()
+        description = ''
+    else:
+        # Title is everything between 'add' and '-d'
+        title = ' '.join(argv[1:d_index]).strip()
+        # Description is everything after '-d'
+        description = ' '.join(argv[d_index + 1:]).strip()
+    
+    return title, description
+
+
 def dispatch_command(app: TodoApp, args: argparse.Namespace) -> None:
     """Dispatch a parsed argparse Namespace to the appropriate handler."""
     if args.command == 'add':
-        app.add_todo(args.title, args.description)
+        # Handle multi-word title and description
+        title = ' '.join(args.title) if isinstance(args.title, list) else args.title
+        description = ' '.join(args.description) if isinstance(args.description, list) else args.description
+        app.add_todo(title, description)
     elif args.command == 'list':
         app.list_todos(show_all=getattr(args, 'all', False))
     elif args.command == 'search':
@@ -419,6 +447,18 @@ def repl(parser: argparse.ArgumentParser, app: TodoApp) -> None:
             print(f"Parse error: {e}")
             continue
         
+        # Handle add command with custom parsing for multi-word titles/descriptions
+        if argv and argv[0] == 'add':
+            try:
+                title, description = parse_add_command(argv)
+                if not title:
+                    print("Error: Task title cannot be empty")
+                    continue
+                app.add_todo(title, description)
+            except ValueError as e:
+                print(f"Parse error: {e}")
+            continue
+        
         try:
             args = parser.parse_args(argv)
         except SystemExit:
@@ -438,6 +478,19 @@ def main():
     if len(sys.argv) == 1:
         app = TodoApp()
         repl(parser, app)
+        return
+    
+    # Handle add command with custom parsing for multi-word titles/descriptions
+    if len(sys.argv) > 1 and sys.argv[1] == 'add':
+        app = TodoApp()
+        try:
+            title, description = parse_add_command(sys.argv[1:])
+            if not title:
+                print("Error: Task title cannot be empty")
+                return
+            app.add_todo(title, description)
+        except ValueError as e:
+            print(f"Parse error: {e}")
         return
     
     args = parser.parse_args()

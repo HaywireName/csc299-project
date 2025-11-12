@@ -36,6 +36,7 @@ python task.py
 Examples in the prompt:
 
 ```
+task> add Buy groceries -d milk, eggs, bread
 task> add "Buy groceries" -d "milk, eggs, bread"
 task> list
 task> search groceries
@@ -52,8 +53,14 @@ task> exit
 ### Add a task
 
 ```bash
+# With quotes (traditional)
 python task.py add "Buy groceries"
 python task.py add "Finish project" -d "Complete the CLI app by Friday"
+
+# Without quotes (new feature)
+python task.py add Buy groceries
+python task.py add Finish project -d Complete the CLI app by Friday
+python task.py add Multi word task title -d Multi word description here
 ```
 
 ### List tasks
