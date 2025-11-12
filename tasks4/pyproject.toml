@@ -7,7 +7,9 @@ authors = [
     { name = "AbeerS", email = "sshah159@depaul.edu" }
 ]
 requires-python = ">=3.13"
-dependencies = []
+dependencies = [
+    "openai>=2.7.2",
+]
 
 [project.scripts]
 tasks4 = "tasks4:main"
