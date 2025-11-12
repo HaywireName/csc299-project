@@ -101,9 +101,6 @@ python task.py delete 1
 # Delete multiple tasks
 python task.py delete 1 3 5
 
-# Only delete if completed
-python task.py delete 2 --completed-only
-
 # Delete ALL tasks (complete and incomplete)
 python task.py delete --all
 ```
@@ -113,6 +110,8 @@ python task.py delete --all
 ```bash
 python task.py clean
 ```
+
+Tip: Use "clean" to remove only completed tasks. Use "delete --all" to remove everything.
 
 ### Get help
 

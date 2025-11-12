@@ -335,10 +335,9 @@ Examples:
     complete_parser.add_argument('id', type=int, nargs='+', help='Task ID(s) to complete')
     
     # Delete command
-    delete_parser = subparsers.add_parser('delete', help='Delete tasks by ID (supports multiple). Use --completed-only to restrict to completed tasks, or --all to delete everything')
+    delete_parser = subparsers.add_parser('delete', help='Delete tasks by ID (supports multiple), or use --all to delete everything')
     delete_parser.add_argument('id', type=int, nargs='*', help='Task ID(s) to delete')
     delete_parser.add_argument('--all', action='store_true', help='Delete all tasks (complete and incomplete)')
-    delete_parser.add_argument('--completed-only', action='store_true', help='Only delete if the task is completed')
 
     # Clean command
     clean_parser = subparsers.add_parser('clean', help='Remove all completed tasks')
@@ -388,46 +387,17 @@ def dispatch_command(app: TodoApp, args: argparse.Namespace) -> None:
         else:
             app.complete_todo(args.id)
     elif args.command == 'delete':
-        # Support deleting all, or multiple IDs, optionally only completed
+        # Support deleting all, or specific display IDs
         if getattr(args, 'all', False):
             removed = len(app.todos)
             app.todos = []
             app.save_todos()
             print(f"✗ Deleted all tasks ({removed} removed)")
-        elif getattr(args, 'completed_only', False):
-            # Handle completed-only filtering for multiple display IDs from --all list
-            # First pass: collect all valid todo objects before making any changes
-            valid_todos = []
-            skipped = []
-            errors = []
-            
-            for display_id in args.id:
-                t = app._get_todo_by_display_id(display_id, show_all=True)
-                if not t:
-                    errors.append(display_id)
-                    continue
-                if not t['completed']:
-                    skipped.append(display_id)
-                    continue
-                valid_todos.append((t['id'], display_id))
-            
-            # Report errors and skips
-            if errors:
-                for display_id in errors:
-                    print(f"Error: Task #{display_id} not found")
-            if skipped:
-                for display_id in skipped:
-                    print(f"Skip: Task #{display_id} is not completed (use without --completed-only to force)")
-            
-            # Delete all valid todos
-            if valid_todos:
-                valid_ids = [display_id for _, display_id in valid_todos]
-                if len(valid_ids) == 1:
-                    app.delete_todo(valid_ids[0], show_all=True)
-                else:
-                    app.delete_todos(valid_ids, show_all=True)
         else:
-            # Default behavior: delete from incomplete tasks list
+            # Default behavior: delete from incomplete tasks list by display IDs
+            if len(args.id) == 0:
+                print("Error: Provide at least one ID or use --all to delete everything")
+                return
             if len(args.id) == 1:
                 app.delete_todo(args.id[0], show_all=False)
             else:
