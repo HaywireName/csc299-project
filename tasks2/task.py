@@ -98,7 +98,7 @@ class TodoApp:
         print(f"✓ Added task #{todo['id']}: {title}")
     
     def list_todos(self, show_all: bool = False) -> None:
-        """List all tasks or only incomplete ones, sorted by ID."""
+        """List all tasks or only incomplete ones, with sequential display IDs."""
         if not self.todos:
             print("No tasks found. Add one with 'task add <title>'")
             return
@@ -114,11 +114,12 @@ class TodoApp:
         print(f"\n{'ID':<5} {'Status':<12} {'Title':<40} {'Description':<30}")
         print("-" * 90)
         
-        for todo in todos_to_show:
+        # Display sequential IDs (1, 2, 3...) instead of actual IDs
+        for display_id, todo in enumerate(todos_to_show, 1):
             status = "✓ Completed" if todo['completed'] else "○ Incomplete"
             title = todo['title'][:37] + "..." if len(todo['title']) > 40 else todo['title']
             desc = todo['description'][:27] + "..." if len(todo['description']) > 30 else todo['description']
-            print(f"{todo['id']:<5} {status:<12} {title:<40} {desc:<30}")
+            print(f"{display_id:<5} {status:<12} {title:<40} {desc:<30}")
         
         completed_count = sum(1 for t in self.todos if t['completed'])
         total_count = len(self.todos)
@@ -146,42 +147,42 @@ class TodoApp:
             desc = todo['description'][:27] + "..." if len(todo['description']) > 30 else todo['description']
             print(f"{todo['id']:<5} {status:<12} {title:<40} {desc:<30}")
     
-    def complete_todo(self, todo_id: int) -> None:
-        """Mark a task as completed."""
-        todo = self._find_todo(todo_id)
+    def complete_todo(self, display_id: int) -> None:
+        """Mark a task as completed using display ID."""
+        todo = self._get_todo_by_display_id(display_id, show_all=False)
         if not todo:
-            print(f"Error: Task #{todo_id} not found")
+            print(f"Error: Task #{display_id} not found")
             return
         
         if todo['completed']:
-            print(f"Task #{todo_id} is already completed")
+            print(f"Task #{display_id} is already completed")
             return
         
         todo['completed'] = True
         todo['completed_at'] = datetime.now().isoformat()
         # After completion, reindex so oldest incomplete is #1
         self.reindex()
-        print(f"✓ Completed task #{todo_id}: {todo['title']}")
+        print(f"✓ Completed task #{display_id}: {todo['title']}")
     
-    def complete_todos(self, todo_ids: List[int]) -> None:
-        """Mark multiple tasks as completed."""
+    def complete_todos(self, display_ids: List[int]) -> None:
+        """Mark multiple tasks as completed using display IDs."""
         completed_titles = []
         errors = []
         already_completed = []
         
-        for todo_id in todo_ids:
-            todo = self._find_todo(todo_id)
+        for display_id in display_ids:
+            todo = self._get_todo_by_display_id(display_id, show_all=False)
             if not todo:
-                errors.append(str(todo_id))
+                errors.append(str(display_id))
                 continue
             
             if todo['completed']:
-                already_completed.append(str(todo_id))
+                already_completed.append(str(display_id))
                 continue
             
             todo['completed'] = True
             todo['completed_at'] = datetime.now().isoformat()
-            completed_titles.append(f"#{todo_id}")
+            completed_titles.append(f"#{display_id}")
         
         if completed_titles:
             self.reindex()
@@ -201,32 +202,38 @@ class TodoApp:
             else:
                 print(f"Tasks {', '.join(already_completed)} were already completed")
     
-    def delete_todo(self, todo_id: int) -> None:
-        """Delete a task by ID."""
-        todo = self._find_todo(todo_id)
+    def delete_todo(self, display_id: int, show_all: bool = False) -> None:
+        """Delete a task by display ID."""
+        todo = self._get_todo_by_display_id(display_id, show_all)
         if not todo:
-            print(f"Error: Task #{todo_id} not found")
+            print(f"Error: Task #{display_id} not found")
             return
         
         title = todo['title']
-        self.todos = [t for t in self.todos if t['id'] != todo_id]
+        actual_id = todo['id']
+        self.todos = [t for t in self.todos if t['id'] != actual_id]
         # After deletion, reindex so remaining tasks are compacted
         self.reindex()
-        print(f"✗ Deleted task #{todo_id}: {title}")
+        print(f"✗ Deleted task #{display_id}: {title}")
     
-    def delete_todos(self, todo_ids: List[int]) -> None:
-        """Delete multiple tasks by ID."""
+    def delete_todos(self, display_ids: List[int], show_all: bool = False) -> None:
+        """Delete multiple tasks by display ID."""
         deleted_ids = []
         errors = []
+        actual_ids_to_delete = []
         
-        for todo_id in todo_ids:
-            todo = self._find_todo(todo_id)
+        for display_id in display_ids:
+            todo = self._get_todo_by_display_id(display_id, show_all)
             if not todo:
-                errors.append(str(todo_id))
+                errors.append(str(display_id))
                 continue
             
-            deleted_ids.append(f"#{todo_id}")
-            self.todos = [t for t in self.todos if t['id'] != todo_id]
+            deleted_ids.append(f"#{display_id}")
+            actual_ids_to_delete.append(todo['id'])
+        
+        # Delete by actual IDs
+        for actual_id in actual_ids_to_delete:
+            self.todos = [t for t in self.todos if t['id'] != actual_id]
         
         if deleted_ids:
             self.reindex()
@@ -245,6 +252,15 @@ class TodoApp:
         for todo in self.todos:
             if todo['id'] == todo_id:
                 return todo
+        return None
+    
+    def _get_todo_by_display_id(self, display_id: int, show_all: bool = False) -> Optional[Dict]:
+        """Get a task by its display ID (position in list)."""
+        todos_to_show = self.todos if show_all else [t for t in self.todos if not t['completed']]
+        todos_to_show = sorted(todos_to_show, key=lambda t: t['id'])
+        
+        if 1 <= display_id <= len(todos_to_show):
+            return todos_to_show[display_id - 1]
         return None
 
     def reindex(self) -> None:
@@ -278,10 +294,10 @@ def build_parser() -> argparse.ArgumentParser:
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  task add "Buy groceries" -d "milk, eggs, bread"
+  task add Buy groceries -d milk, eggs, bread
   task list
   task list --all
-  task search "groceries"
+  task search groceries
   task complete 1
   task delete 1
         """
@@ -362,27 +378,28 @@ def dispatch_command(app: TodoApp, args: argparse.Namespace) -> None:
     elif args.command == 'delete':
         # Support deleting multiple IDs, optionally only completed
         if getattr(args, 'completed_only', False):
-            # Handle completed-only filtering for multiple IDs
+            # Handle completed-only filtering for multiple display IDs from --all list
             valid_ids = []
-            for tid in args.id:
-                t = app._find_todo(tid)
+            for display_id in args.id:
+                t = app._get_todo_by_display_id(display_id, show_all=True)
                 if not t:
-                    print(f"Error: Task #{tid} not found")
+                    print(f"Error: Task #{display_id} not found")
                     continue
                 if not t['completed']:
-                    print(f"Skip: Task #{tid} is not completed (use without --completed-only to force)")
+                    print(f"Skip: Task #{display_id} is not completed (use without --completed-only to force)")
                     continue
-                valid_ids.append(tid)
+                valid_ids.append(display_id)
             if valid_ids:
                 if len(valid_ids) == 1:
-                    app.delete_todo(valid_ids[0])
+                    app.delete_todo(valid_ids[0], show_all=True)
                 else:
-                    app.delete_todos(valid_ids)
+                    app.delete_todos(valid_ids, show_all=True)
         else:
+            # Default behavior: delete from incomplete tasks list
             if len(args.id) == 1:
-                app.delete_todo(args.id[0])
+                app.delete_todo(args.id[0], show_all=False)
             else:
-                app.delete_todos(args.id)
+                app.delete_todos(args.id, show_all=False)
     elif args.command == 'clean':
         before = len(app.todos)
         app.todos = [t for t in app.todos if not t['completed']]

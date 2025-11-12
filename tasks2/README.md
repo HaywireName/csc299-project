@@ -77,8 +77,8 @@ python task.py list -a
 ### Search tasks
 
 ```bash
-python task.py search "groceries"
-python task.py search "project"
+python task.py search groceries
+python task.py search project
 ```
 
 ### Complete tasks
@@ -119,7 +119,7 @@ python task.py add --help
 
 ## Data Storage
 
-Tasks are stored in `tasks.json` in this directory (`tasks1/`). Each task contains:
+Tasks are stored in `tasks.json` in this directory (`tasks2/`). Each task contains:
 - `id`: Unique identifier
 - `title`: Task title
 - `description`: Optional description
@@ -127,13 +127,21 @@ Tasks are stored in `tasks.json` in this directory (`tasks1/`). Each task contai
 - `created_at`: ISO timestamp of creation
 - `completed_at`: ISO timestamp of completion (null if incomplete)
 
+## ID Numbering
+
+The app uses display IDs for user interaction:
+- `task list`: Shows incomplete tasks numbered 1, 2, 3, etc.
+- `task list --all`: Shows all tasks numbered 1, 2, 3, etc.
+- Commands like `complete`, `delete` use these display IDs
+- When using `delete --completed-only`, use IDs from `list --all`
+
 ## Example Workflow
 
 ```bash
 # Add some tasks
-python task.py add "Learn Python" -d "Complete the tutorial"
-python task.py add "Build a project"
-python task.py add "Write documentation"
+python task.py add Learn Python -d Complete the tutorial
+python task.py add Build a project
+python task.py add Write documentation
 
 # List tasks
 python task.py list
@@ -142,7 +150,7 @@ python task.py list
 python task.py complete 1
 
 # Search for tasks
-python task.py search "project"
+python task.py search project
 
 # List all tasks including completed
 python task.py list --all
