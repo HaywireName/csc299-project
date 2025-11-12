@@ -40,7 +40,9 @@ task> add "Buy groceries" -d "milk, eggs, bread"
 task> list
 task> search groceries
 task> complete 1
+task> complete 2 3 4
 task> delete 1
+task> delete 5 6 7
 task> clean
 task> help
 task> help add
@@ -72,16 +74,23 @@ python task.py search "groceries"
 python task.py search "project"
 ```
 
-### Complete a task
+### Complete tasks
 
 ```bash
+# Complete a single task
 python task.py complete 1
+
+# Complete multiple tasks
+python task.py complete 1 2 3
 ```
 
 ### Delete tasks
 
 ```bash
-# Delete specific IDs (one or many)
+# Delete a single task
+python task.py delete 1
+
+# Delete multiple tasks
 python task.py delete 1 3 5
 
 # Only delete if completed

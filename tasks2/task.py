@@ -163,6 +163,44 @@ class TodoApp:
         self.reindex()
         print(f"✓ Completed task #{todo_id}: {todo['title']}")
     
+    def complete_todos(self, todo_ids: List[int]) -> None:
+        """Mark multiple tasks as completed."""
+        completed_titles = []
+        errors = []
+        already_completed = []
+        
+        for todo_id in todo_ids:
+            todo = self._find_todo(todo_id)
+            if not todo:
+                errors.append(str(todo_id))
+                continue
+            
+            if todo['completed']:
+                already_completed.append(str(todo_id))
+                continue
+            
+            todo['completed'] = True
+            todo['completed_at'] = datetime.now().isoformat()
+            completed_titles.append(f"#{todo_id}")
+        
+        if completed_titles:
+            self.reindex()
+            if len(completed_titles) == 1:
+                print(f"✓ Completed task {completed_titles[0]}")
+            elif len(completed_titles) == 2:
+                print(f"✓ Completed tasks {completed_titles[0]} and {completed_titles[1]}")
+            else:
+                print(f"✓ Completed tasks {', '.join(completed_titles[:-1])}, and {completed_titles[-1]}")
+        
+        if errors:
+            print(f"Error: Task(s) {', '.join(errors)} not found")
+        
+        if already_completed:
+            if len(already_completed) == 1:
+                print(f"Task #{already_completed[0]} was already completed")
+            else:
+                print(f"Tasks {', '.join(already_completed)} were already completed")
+    
     def delete_todo(self, todo_id: int) -> None:
         """Delete a task by ID."""
         todo = self._find_todo(todo_id)
@@ -175,6 +213,32 @@ class TodoApp:
         # After deletion, reindex so remaining tasks are compacted
         self.reindex()
         print(f"✗ Deleted task #{todo_id}: {title}")
+    
+    def delete_todos(self, todo_ids: List[int]) -> None:
+        """Delete multiple tasks by ID."""
+        deleted_ids = []
+        errors = []
+        
+        for todo_id in todo_ids:
+            todo = self._find_todo(todo_id)
+            if not todo:
+                errors.append(str(todo_id))
+                continue
+            
+            deleted_ids.append(f"#{todo_id}")
+            self.todos = [t for t in self.todos if t['id'] != todo_id]
+        
+        if deleted_ids:
+            self.reindex()
+            if len(deleted_ids) == 1:
+                print(f"✗ Deleted task {deleted_ids[0]}")
+            elif len(deleted_ids) == 2:
+                print(f"✗ Deleted tasks {deleted_ids[0]} and {deleted_ids[1]}")
+            else:
+                print(f"✗ Deleted tasks {', '.join(deleted_ids[:-1])}, and {deleted_ids[-1]}")
+        
+        if errors:
+            print(f"Error: Task(s) {', '.join(errors)} not found")
     
     def _find_todo(self, todo_id: int) -> Optional[Dict]:
         """Find a task by ID."""
@@ -241,7 +305,7 @@ Examples:
     
     # Complete command
     complete_parser = subparsers.add_parser('complete', help='Mark a task as completed')
-    complete_parser.add_argument('id', type=int, help='Task ID to complete')
+    complete_parser.add_argument('id', type=int, nargs='+', help='Task ID(s) to complete')
     
     # Delete command
     delete_parser = subparsers.add_parser('delete', help='Delete tasks by ID (supports multiple). Use --completed-only to restrict to completed tasks')
@@ -263,11 +327,16 @@ def dispatch_command(app: TodoApp, args: argparse.Namespace) -> None:
     elif args.command == 'search':
         app.search_todos(args.query)
     elif args.command == 'complete':
-        app.complete_todo(args.id)
+        if isinstance(args.id, list):
+            app.complete_todos(args.id)
+        else:
+            app.complete_todo(args.id)
     elif args.command == 'delete':
         # Support deleting multiple IDs, optionally only completed
-        for tid in args.id:
-            if getattr(args, 'completed_only', False):
+        if getattr(args, 'completed_only', False):
+            # Handle completed-only filtering for multiple IDs
+            valid_ids = []
+            for tid in args.id:
                 t = app._find_todo(tid)
                 if not t:
                     print(f"Error: Task #{tid} not found")
@@ -275,7 +344,17 @@ def dispatch_command(app: TodoApp, args: argparse.Namespace) -> None:
                 if not t['completed']:
                     print(f"Skip: Task #{tid} is not completed (use without --completed-only to force)")
                     continue
-            app.delete_todo(tid)
+                valid_ids.append(tid)
+            if valid_ids:
+                if len(valid_ids) == 1:
+                    app.delete_todo(valid_ids[0])
+                else:
+                    app.delete_todos(valid_ids)
+        else:
+            if len(args.id) == 1:
+                app.delete_todo(args.id[0])
+            else:
+                app.delete_todos(args.id)
     elif args.command == 'clean':
         before = len(app.todos)
         app.todos = [t for t in app.todos if not t['completed']]
