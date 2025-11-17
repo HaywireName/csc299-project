@@ -1,0 +1,24 @@
+[project]
+name = "tasks5"
+version = "0.1.0"
+description = "Simple CLI to add, list (color-coded), and complete tasks stored in .tasks.json"
+readme = "README.md"
+requires-python = ">=3.14"
+dependencies = [
+  "colorama>=0.4.6",
+]
+
+[project.scripts]
+task = "src.cli.main:main"
+
+[tool.setuptools]
+packages = ["src", "src.cli", "src.lib", "src.models", "src.services"]
+
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[dependency-groups]
+dev = [
+  "pytest>=9.0.1",
+]
