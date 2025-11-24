@@ -4,7 +4,7 @@ import shutil
 import time
 from datetime import datetime
 from tabulate import tabulate
-from PyPDF2 import PdfReader
+from pypdf import PdfReader
 from docx import Document
 from tqdm import tqdm
 from openai import OpenAI
@@ -215,7 +215,7 @@ class DocumentManager:
             raise e
         
         # Create document record
-        now = datetime.now().strftime("%m-%d-%YT%H:%M:%S")
+        now = datetime.now().strftime("%m-%d-%YT%H:%M:%S.%f")
         doc = {
             "id": self._generate_doc_id(),
             "filename": filename,
@@ -251,7 +251,7 @@ class DocumentManager:
         doc = self.get_doc(doc_id)  # This will raise PDFNotFoundError if not found
         
         # Confirm deletion
-        doc_name = doc['name']
+        doc_name = doc['filename']
         if not confirm_action(f"Delete document '{doc_name}'? (yes/no):", require_yes=False):
             print(format_warning("Deletion cancelled"))
             return
@@ -291,7 +291,7 @@ class DocumentManager:
         """Update the last_accessed timestamp for a document."""
         doc = self.get_doc(doc_id)
         if doc:
-            doc['last_accessed'] = datetime.now().strftime("%m-%d-%YT%H:%M:%S")
+            doc['last_accessed'] = datetime.now().strftime("%m-%d-%YT%H:%M:%S.%f")
             self._save_documents()
 
     def _get_cache_path(self, doc_id, page_num=None):
@@ -623,7 +623,7 @@ class DocumentManager:
         """Command to add a document."""
         if not args:
             print("Error: File path is required.")
-            print("Usage: docs-add <filepath>")
+            print("Usage: add <filepath>")
             return
         
         filepath = " ".join(args)
@@ -661,6 +661,7 @@ class DocumentManager:
         
         if not docs:
             print("No documents available.")
+            print("Tip: Use 'add <filepath>' to add documents.")
             return
         
         table = []
@@ -696,7 +697,7 @@ class DocumentManager:
         """Command to remove a document."""
         if not args:
             print("Error: Document ID is required.")
-            print("Usage: docs-remove <doc_id>")
+            print("Usage: remove <doc_id>")
             return
         
         doc_id = args[0]
@@ -721,7 +722,7 @@ class DocumentManager:
         """Command to view document details."""
         if not args:
             print("Error: Document ID is required.")
-            print("Usage: docs-view <doc_id>")
+            print("Usage: view <doc_id>")
             return
         
         doc_id = args[0]
@@ -787,7 +788,7 @@ class DocumentManager:
         """Command to extract text from a document."""
         if not args:
             print("Error: Document ID is required.")
-            print("Usage: docs-extract <doc_id> [--page N]")
+            print("Usage: extract <doc_id> [--page N]")
             return
         
         doc_id = args[0]
@@ -837,7 +838,7 @@ class DocumentManager:
         """Command to search across all documents."""
         if not args:
             print("Error: Search query is required.")
-            print("Usage: docs-search <query>")
+            print("Usage: search <query>")
             return
         
         query = " ".join(args)
@@ -888,7 +889,7 @@ class DocumentManager:
         """Command to generate AI summary for a document."""
         if not args:
             print("Error: Document ID is required.")
-            print("Usage: docs-summarize <doc_id> [--max-words N]")
+            print("Usage: summarize <doc_id> [--max-words N]")
             return
         
         doc_id = args[0]

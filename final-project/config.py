@@ -25,7 +25,11 @@ def get_api_key():
     Get OpenAI API key from system environment variable.
     Returns: API key string or None if not found
     """
-    return os.environ.get('OPENAI_API_KEY')
+    api_key = os.environ.get('OPENAI_API_KEY')
+    if api_key:
+        # Strip leading/trailing single or double quotes if present
+        api_key = api_key.strip("'\"")
+    return api_key
 
 def check_api_key():
     """

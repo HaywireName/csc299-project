@@ -29,6 +29,10 @@ class CommandRegistry:
         """Check if a command is registered."""
         return name in self.commands
 
+    def get_command_module(self, name):
+        """Get the module that a command belongs to."""
+        return self.commands.get(name, {}).get('module')
+
 def parse_command(input_string):
     """Parse an input string into a command name and arguments."""
     input_string = input_string.strip()

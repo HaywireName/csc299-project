@@ -88,7 +88,7 @@ class TaskManager:
     def _parse_deadline(self, deadline_str):
         """
         Parse deadline from various formats and return DD-MM-YYYY format.
-        Supports: MM-DD-YYYY, YYYY-DD-MM, MM/DD, MM-YY, MM/DD/YYYY, YYYY/DD/MM, and 'tomorrow'
+        Supports: DD-MM-YYYY, MM-DD-YYYY, YYYY-DD-MM, MM/DD, MM-YY, MM/DD/YYYY, YYYY/DD/MM, and 'tomorrow'
         :param deadline_str: Deadline string in various formats
         :return: Formatted deadline string in DD-MM-YYYY format
         """
@@ -110,12 +110,24 @@ class TaskManager:
             current_year = datetime.now().year
             
             if len(parts) == 3:
-                # Could be MM-DD-YYYY, YYYY-DD-MM, or similar
+                # Could be DD-MM-YYYY, MM-DD-YYYY, YYYY-DD-MM, or similar
                 if len(parts[0]) == 4:
                     # YYYY-DD-MM format
                     year, day, month = int(parts[0]), int(parts[1]), int(parts[2])
+                elif len(parts[2]) == 4:
+                    # Either DD-MM-YYYY or MM-DD-YYYY
+                    first, second, year = int(parts[0]), int(parts[1]), int(parts[2])
+                    # Check if first part is > 12, then it must be DD-MM-YYYY
+                    if first > 12:
+                        day, month = first, second
+                    # Check if second part is > 12, then it must be MM-DD-YYYY
+                    elif second > 12:
+                        month, day = first, second
+                    # Both <= 12, try DD-MM-YYYY first (more common internationally)
+                    else:
+                        day, month = first, second
                 else:
-                    # MM-DD-YYYY format
+                    # MM-DD-YY format
                     month, day, year = int(parts[0]), int(parts[1]), int(parts[2])
                     # Handle 2-digit year
                     if year < 100:
@@ -141,7 +153,7 @@ class TaskManager:
             return parsed_date.strftime("%d-%m-%Y")
             
         except (ValueError, IndexError) as e:
-            raise ValueError(f"Invalid deadline format '{deadline_str}'. Supported formats: MM-DD-YYYY, YYYY-DD-MM, MM/DD/YYYY, MM/DD, MM-YY, or 'tomorrow'")
+            raise ValueError(f"Invalid deadline format '{deadline_str}'. Supported formats: DD-MM-YYYY, MM-DD-YYYY, YYYY-DD-MM, MM/DD/YYYY, MM/DD, MM-YY, or 'tomorrow'")
 
     def _count_words(self, text):
         """Count the number of words in a text string."""
@@ -244,9 +256,9 @@ class TaskManager:
             raise InvalidInputError("Task has no description to summarize", field="description")
         
         word_count = self._count_words(description)
-        if word_count <= 100:
+        if word_count < 20:
             raise InvalidInputError(
-                f"Description is too short ({word_count} words). Minimum 100 words required for summarization.",
+                f"Description is too short ({word_count} words). Minimum 20 words required for summarization.",
                 field="description"
             )
         
@@ -434,14 +446,13 @@ class TaskManager:
         self.registry.register_command('summarize', self.cmd_summarize, 'Generate AI summary for a task', 'tasks')
         self.registry.register_command('cost', self.cmd_cost, 'Show cumulative OpenAI API cost', 'tasks')
         self.registry.register_command('folders', self.cmd_folders, 'List all folders', 'folders')
-        self.registry.register_command('folder', self.cmd_folder, 'Switch to a folder', 'folders')
-        self.registry.register_command('folder_create', self.cmd_folder_create, 'Create a new folder', 'folders')
-        self.registry.register_command('folder_delete', self.cmd_folder_delete, 'Delete a folder', 'folders')
+        self.registry.register_command('folder', self.cmd_folder, 'Manage folders (use -a to add, -d to delete)', 'folders')
 
     def cmd_add(self, *args):
         """Command to add a task with optional deadline, description, and priority."""
         if not args:
             print("Error: Task title is required.")
+            print("Usage: add <title> [-p priority] [-desc description] [-dl deadline]")
             return
         
         # Parse arguments
@@ -454,7 +465,7 @@ class TaskManager:
         i = 0
         
         # First, collect title until we hit a flag
-        while i < len(args) and not args[i].startswith('--'):
+        while i < len(args) and not args[i].startswith('-'):
             title_parts.append(args[i])
             i += 1
         
@@ -464,11 +475,11 @@ class TaskManager:
         
         title = " ".join(title_parts)
         
-        # Parse optional flags
+        # Parse optional flags (support both old and new format)
         while i < len(args):
-            if args[i] == '--deadline':
+            if args[i] in ['-dl', '--deadline']:
                 if i + 1 >= len(args):
-                    print("Error: --deadline requires a date argument.")
+                    print("Error: -dl requires a date argument.")
                     return
                 deadline_str = args[i + 1]
                 try:
@@ -477,17 +488,17 @@ class TaskManager:
                     print(f"Error: {e}")
                     return
                 i += 2
-            elif args[i] == '--description':
+            elif args[i] in ['-desc', '--description']:
                 # Collect all text until next flag or end
                 desc_parts = []
                 i += 1
-                while i < len(args) and not args[i].startswith('--'):
+                while i < len(args) and not args[i].startswith('-'):
                     desc_parts.append(args[i])
                     i += 1
                 description = ' '.join(desc_parts)
-            elif args[i] == '--priority':
+            elif args[i] in ['-p', '--priority']:
                 if i + 1 >= len(args):
-                    print("Error: --priority requires a level argument.")
+                    print("Error: -p requires a level argument.")
                     return
                 priority = args[i + 1].lower()
                 if priority not in ['low', 'medium', 'high']:
@@ -716,10 +727,51 @@ class TaskManager:
             print(f"{prefix} {folder} ({count} tasks)")
 
     def cmd_folder(self, *args):
-        """Command to switch to a folder, creating it if necessary."""
+        """Command to switch to a folder or manage folders with -a (add) and -d (delete) flags."""
         if not args:
-            print("Error: Folder name is required.")
+            print("Error: Folder name or flag is required.")
+            print("Usage: folder <name>           - Switch to folder")
+            print("       folder -a <name>        - Create new folder")
+            print("       folder -d <name>        - Delete folder")
             return
+        
+        # Check for -a flag (add/create)
+        if args[0] == '-a':
+            if len(args) < 2:
+                print("Error: Folder name is required.")
+                print("Usage: folder -a <name>")
+                return
+            folder_name = args[1]
+            try:
+                self.create_folder(folder_name)
+                print(f"✓ Created folder: {folder_name}")
+            except ValueError as e:
+                print(f"Error: {e}")
+            return
+        
+        # Check for -d flag (delete)
+        if args[0] == '-d':
+            if len(args) < 2:
+                print("Error: Folder name is required.")
+                print("Usage: folder -d <name>")
+                return
+            folder_name = args[1]
+            try:
+                if folder_name == "default":
+                    print("Error: Cannot delete the default folder.")
+                    return
+                task_count = len(self.data["folders"].get(folder_name, []))
+                confirmation = input(f"⚠️  WARNING: This will delete folder '{folder_name}' and all {task_count} task(s).\nAre you sure? (yes/no): ")
+                if confirmation.lower() == "yes":
+                    self.delete_folder(folder_name)
+                    print(f"✓ Folder deleted: {folder_name}")
+                else:
+                    print("✗ Folder deletion canceled.")
+            except ValueError as e:
+                print(f"Error: {e}")
+            return
+        
+        # No flag - switch to folder
         folder_name = args[0]
         try:
             self.switch_folder(folder_name)
@@ -778,8 +830,8 @@ class TaskManager:
                 return
             
             word_count = self._count_words(description)
-            if word_count <= 100:
-                print(f"Description is short ({word_count} words), no summary needed.")
+            if word_count < 20:
+                print(f"Description is short ({word_count} words), no summary needed (minimum 20 words).")
                 return
             
             # Check if OpenAI client is available

@@ -22,7 +22,8 @@ except ImportError:
 from config import check_api_key
 from core.commands import CommandRegistry, parse_command
 from core.errors import PKMSError, TaskNotFoundError, PDFNotFoundError, InvalidInputError, APIError, StorageError, ValidationError
-from core.utils import format_error, format_success, format_warning, format_info, format_tip, get_tips
+from core.utils import format_error, format_success, format_warning, format_info, format_tip, get_tips, confirm_action, pluralize
+from core.backup import BackupManager
 from modules.task_module import TaskManager
 from modules.docs_module import DocumentManager
 from modules.chat_module import ChatManager
@@ -159,8 +160,14 @@ def show_main_menu(stats):
     print("\n💡 Commands:")
     print("  Type module name to enter (e.g., 'tasks', 'docs')")
     print("  status         - Show current context")
+    print("  stats          - Show usage statistics")
     print("  help           - Show all commands")
-    print("  exit, quit     - Exit program")
+    print("\n📦 Data Management:")
+    print("  export         - Export all data to ZIP")
+    print("  import         - Import data from ZIP")
+    print("  backup         - Create manual backup")
+    print("  restore        - Restore from backup")
+    print("\n  exit, quit     - Exit program")
     print("=" * 60 + "\n")
 
 def help_command_main_menu(registry):
@@ -195,12 +202,20 @@ def help_command_main_menu(registry):
     print("=" * 60)
     
     print("\n🌐 Global Commands:")
+    data_mgmt_cmds = []
     for name, desc in global_cmds:
         if name == 'quit':
             continue
         if name == 'exit':
             print("  exit, quit     - Exit program")
+        elif name in ['export', 'import', 'backup', 'restore']:
+            data_mgmt_cmds.append((name, desc))
         else:
+            print(f"  {name:<14} - {desc}")
+    
+    if data_mgmt_cmds:
+        print("\n📦 Data Management:")
+        for name, desc in data_mgmt_cmds:
             print(f"  {name:<14} - {desc}")
     
     print("\n📋 Task Module Commands:")
@@ -236,7 +251,8 @@ def help_command_module(registry, module_name):
     
     # Filter commands for current module
     module_cmds = []
-    global_cmds = []
+    program_cmds = []
+    data_mgmt_cmds = []
     
     # Category mapping - some modules have multiple categories
     category_map = {
@@ -261,7 +277,11 @@ def help_command_module(registry, module_name):
         if category == 'global':
             # Skip module entry commands in module help
             if name not in ['tasks', 'docs', 'chat', 'agent', 'settings']:
-                global_cmds.append((name, description))
+                # Separate data management commands
+                if name in ['export', 'import', 'backup', 'restore']:
+                    data_mgmt_cmds.append((name, description))
+                else:
+                    program_cmds.append((name, description))
         elif category in target_categories:
             # Remove module prefix for display
             display_name = name.replace(module_prefix, '') if module_prefix else name
@@ -278,13 +298,18 @@ def help_command_module(registry, module_name):
     else:
         print(f"\nNo commands found for {module_name} module.")
     
-    print("\n🌐 Global Commands:")
-    for name, desc in global_cmds:
+    print("\n🌐 Program Commands:")
+    for name, desc in program_cmds:
         if name == 'quit':
             continue
         if name == 'exit':
             print("  exit, quit     - Exit program")
         else:
+            print(f"  {name:<14} - {desc}")
+    
+    if data_mgmt_cmds:
+        print("\n📦 Data Management:")
+        for name, desc in data_mgmt_cmds:
             print(f"  {name:<14} - {desc}")
     
     print("=" * 60 + "\n")
@@ -388,6 +413,14 @@ def main():
     
     # Initialize AgentManager (this will register agent commands)
     agent_manager = AgentManager(data_manager, task_manager, registry, document_manager)
+    
+    # Initialize BackupManager
+    backup_manager = BackupManager(data_manager.data_dir)
+    
+    # Perform auto-backup on startup
+    created, backup_path = backup_manager.auto_backup()
+    if created:
+        print(format_info(f"Auto-backup created: {backup_path.name}"))
 
     # Command functions with closures
     def enter_module(module_name):
@@ -421,6 +454,11 @@ def main():
     def cmd_chat_module(*args):
         """Enter chat module."""
         enter_module('chat')
+        # Show chat slash commands
+        print("Chat Module Commands:")
+        print("  chat             - Start interactive chat mode")
+        print("  /help            - Show chat slash commands (in chat mode)")
+        print("  Type 'help' for all available commands\n")
     
     def cmd_agent_module(*args):
         """Enter agent module."""
@@ -466,12 +504,251 @@ def main():
             help_command_module(registry, session.current_module)
         else:
             help_command_main_menu(registry)
+    
+    def cmd_stats(*args):
+        """Show comprehensive usage statistics."""
+        print("\n" + "=" * 60)
+        print("PKMS Statistics")
+        print("=" * 60)
+        
+        # Task statistics
+        tasks_data = task_manager.data
+        folders = tasks_data.get('folders', {})
+        total_tasks = 0
+        pending_tasks = 0
+        completed_tasks = 0
+        overdue_tasks = 0
+        
+        for folder_tasks in folders.values():
+            for task in folder_tasks:
+                total_tasks += 1
+                if task.get('status') == 'completed':
+                    completed_tasks += 1
+                elif task.get('status') == 'pending':
+                    pending_tasks += 1
+                    # Check if overdue
+                    deadline = task.get('deadline')
+                    if deadline:
+                        try:
+                            from dateutil import parser as date_parser
+                            deadline_date = date_parser.parse(deadline)
+                            if deadline_date < datetime.now():
+                                overdue_tasks += 1
+                        except:
+                            pass
+        
+        print(f"\nTasks:")
+        print(f"  Total:     {total_tasks}")
+        print(f"  Pending:   {pending_tasks}")
+        print(f"  Completed: {completed_tasks}")
+        if overdue_tasks > 0:
+            print(f"  Overdue:   {overdue_tasks}")
+        
+        # Folder statistics
+        print(f"\nFolders: {len(folders)}")
+        if folders:
+            folder_stats = []
+            for folder_name, folder_tasks in folders.items():
+                folder_stats.append(f"{folder_name} ({len(folder_tasks)})")
+            print(f"  {', '.join(folder_stats)}")
+        
+        # Document statistics
+        docs_data = document_manager.data_manager.load("docs_metadata.json")
+        if docs_data:
+            total_docs = len(docs_data)
+            pdf_count = sum(1 for doc in docs_data if doc.get('extension') == '.pdf')
+            docx_count = sum(1 for doc in docs_data if doc.get('extension') == '.docx')
+            txt_count = sum(1 for doc in docs_data if doc.get('extension') == '.txt')
+            total_pages = sum(doc.get('page_count', 0) for doc in docs_data)
+            summarized = sum(1 for doc in docs_data if doc.get('summary'))
+            
+            print(f"\nDocuments:")
+            print(f"  Total PDFs:    {pdf_count}")
+            print(f"  Total DOCX:    {docx_count}")
+            print(f"  Total TXT:     {txt_count}")
+            print(f"  Total Pages:   {total_pages}")
+            print(f"  Summaries:     {summarized}")
+        else:
+            print(f"\nDocuments:")
+            print(f"  Total: 0")
+        
+        # Storage statistics
+        storage_stats = backup_manager.get_storage_stats()
+        print(f"\nStorage:")
+        print(f"  Documents:  {storage_stats['docs_mb']:.2f} MB")
+        print(f"  Cache:      {storage_stats['cache_mb']:.2f} MB")
+        print(f"  Data:       {storage_stats['json_mb']:.2f} MB")
+        print(f"  Backups:    {storage_stats['backups_mb']:.2f} MB")
+        print(f"  Total:      {storage_stats['total_mb']:.2f} MB")
+        
+        # API cost statistics (from task manager session)
+        if hasattr(task_manager, 'session_cost') and task_manager.session_cost > 0:
+            print(f"\nAPI Usage (This Session):")
+            print(f"  Estimated Cost: ${task_manager.session_cost:.4f}")
+        
+        # Backup statistics
+        backups = backup_manager.list_backups()
+        if backups:
+            latest_backup = backups[0]
+            print(f"\nBackups:")
+            print(f"  Total:        {len(backups)}")
+            print(f"  Last Backup:  {latest_backup[2].strftime('%Y-%m-%d %H:%M:%S')}")
+            print(f"  Backup Size:  {latest_backup[1]:.2f} MB")
+        
+        print("=" * 60 + "\n")
+    
+    def cmd_export(*args):
+        """Create full export of all data."""
+        print("\nCreating export archive...")
+        
+        try:
+            # Count items for display
+            tasks_data = task_manager.data
+            folders = tasks_data.get('folders', {})
+            total_tasks = sum(len(tasks) for tasks in folders.values())
+            
+            print(format_info(f"✓ Exporting {pluralize(total_tasks, 'task')} across {len(folders)} {pluralize(len(folders), 'folder')}"))
+            
+            docs_data = document_manager.data_manager.load("docs_metadata.json")
+            if docs_data:
+                storage_stats = backup_manager.get_storage_stats()
+                print(format_info(f"✓ Exporting {len(docs_data)} {pluralize(len(docs_data), 'document')}, {storage_stats['docs_mb']:.1f} MB"))
+            
+            print(format_info("✓ Exporting configuration"))
+            print(format_info("✓ Creating README"))
+            
+            # Create export
+            export_path = backup_manager.export_data()
+            
+            # Get file size
+            size_mb = export_path.stat().st_size / (1024 * 1024)
+            
+            print(format_success(f"\nExport complete: {export_path}"))
+            print(format_info(f"Size: {size_mb:.1f} MB"))
+        
+        except Exception as e:
+            print(format_error(f"Export failed: {str(e)}"))
+    
+    def cmd_import(*args):
+        """Import data from export file."""
+        if not args:
+            print(format_error("Usage: import <export_file>"))
+            print(format_info("Example: import exports/pkms_export_20251122_103000.zip"))
+            return
+        
+        import_file = ' '.join(args)
+        
+        try:
+            # Check if file exists
+            import_path = Path(import_file)
+            if not import_path.exists():
+                # Try in exports directory
+                import_path = backup_manager.export_dir / import_file
+                if not import_path.exists():
+                    print(format_error(f"Import file not found: {import_file}"))
+                    return
+            
+            # Ask for import mode
+            print("\nImport mode:")
+            print("  merge   - Combine with existing data (recommended)")
+            print("  replace - Replace all current data (creates backup first)")
+            print("  cancel  - Cancel import")
+            
+            mode = input("\nSelect mode (merge/replace/cancel): ").strip().lower()
+            
+            if mode not in ['merge', 'replace']:
+                print(format_warning("Import cancelled"))
+                return
+            
+            if mode == 'replace':
+                if not confirm_action("This will replace ALL data. Continue?", require_yes=True):
+                    print(format_warning("Import cancelled"))
+                    return
+            
+            print(f"\nImporting data in '{mode}' mode...")
+            
+            # Perform import
+            stats = backup_manager.import_data(str(import_path), mode)
+            
+            print(format_success("\nImport complete!"))
+            print(format_info(f"Imported: {pluralize(stats['tasks'], 'task')}, {pluralize(stats['documents'], 'document')}"))
+            if stats['settings']:
+                print(format_info("Settings imported"))
+            
+            # Reload managers
+            print(format_info("\nReloading data..."))
+            task_manager.data = task_manager.data_manager.load("tasks.json") or {"folders": {"default": []}, "current_folder": "default"}
+            task_manager.tasks = task_manager.data["folders"].get(task_manager.data["current_folder"], [])
+            document_manager.documents = document_manager.data_manager.load("docs_metadata.json") or []
+        
+        except Exception as e:
+            print(format_error(f"Import failed: {str(e)}"))
+    
+    def cmd_backup(*args):
+        """Create manual backup."""
+        print("\nCreating backup...")
+        
+        try:
+            backup_path = backup_manager.create_backup(auto=False)
+            size_mb = backup_path.stat().st_size / (1024 * 1024)
+            
+            print(format_success(f"Backup saved: {backup_path.name}"))
+            print(format_info(f"Location: {backup_path}"))
+            print(format_info(f"Size: {size_mb:.2f} MB"))
+        
+        except Exception as e:
+            print(format_error(f"Backup failed: {str(e)}"))
+    
+    def cmd_restore(*args):
+        """Restore from backup."""
+        if not args:
+            # List available backups
+            backups = backup_manager.list_backups()
+            if not backups:
+                print(format_info("No backups available"))
+                return
+            
+            print("\nAvailable backups:")
+            print("=" * 60)
+            for filename, size_mb, created, is_auto in backups:
+                backup_type = "[AUTO]" if is_auto else "[MANUAL]"
+                print(f"  {backup_type} {filename}")
+                print(f"    Created: {created.strftime('%Y-%m-%d %H:%M:%S')}")
+                print(f"    Size: {size_mb:.2f} MB")
+                print()
+            
+            print(format_info("Usage: restore <backup_filename>"))
+            return
+        
+        backup_file = args[0]
+        
+        try:
+            # Confirm restoration
+            if not confirm_action(f"Restore from '{backup_file}'? This will replace current data.", require_yes=True):
+                print(format_warning("Restore cancelled"))
+                return
+            
+            print(f"\nRestoring from backup...")
+            
+            # Perform restoration
+            backup_manager.restore_backup(backup_file)
+            
+            print(format_success("Restore complete!"))
+            print(format_info("Please restart the program to load restored data."))
+        
+        except Exception as e:
+            print(format_error(f"Restore failed: {str(e)}"))
 
     # Register global commands
     registry.register_command('help', cmd_help, 'Show available commands', 'global')
     registry.register_command('home', cmd_home, 'Return to main menu', 'global')
     registry.register_command('menu', cmd_home, 'Return to main menu', 'global')
     registry.register_command('status', cmd_status, 'Show current context', 'global')
+    registry.register_command('stats', cmd_stats, 'Show usage statistics', 'global')
+    registry.register_command('export', cmd_export, 'Export all data to ZIP', 'global')
+    registry.register_command('import', cmd_import, 'Import data from ZIP', 'global')
+    registry.register_command('backup', cmd_backup, 'Create manual backup', 'global')
+    registry.register_command('restore', cmd_restore, 'Restore from backup', 'global')
     registry.register_command('exit', exit_command, 'Exit program', 'global')
     registry.register_command('quit', exit_command, 'Exit program', 'global')
     
@@ -540,6 +817,51 @@ def main():
                 actual_command_name = command_name
 
             if command_function:
+                # Check if command is valid in current context
+                command_module = registry.get_command_module(actual_command_name)
+                
+                # At main menu (no module), only allow global commands
+                if session.current_module is None and command_module != 'global':
+                    print(format_error(f"Command '{command_name}' is not available at the main menu."))
+                    # Suggest which module to enter
+                    module_map = {
+                        'tasks': 'tasks',
+                        'folders': 'tasks',
+                        'docs': 'docs',
+                        'chat': 'chat',
+                        'agent': 'agent',
+                        'settings': 'settings'
+                    }
+                    suggested_module = module_map.get(command_module)
+                    if suggested_module:
+                        print(format_info(f"To use this command, enter the '{suggested_module}' module first."))
+                        print(format_tip(f"Type: {suggested_module}"))
+                    continue
+                
+                # In a module, check if command belongs to current module or is global
+                if session.current_module and command_module not in ['global', session.current_module]:
+                    # Special handling for tasks/folders since they're both in tasks module
+                    if session.current_module == 'tasks' and command_module in ['tasks', 'folders']:
+                        pass  # Allow it
+                    else:
+                        print(format_error(f"Command '{command_name}' is not available in the {session.current_module} module."))
+                        if command_module == 'global':
+                            print(format_info("This is a program command available from any module."))
+                        else:
+                            module_map = {
+                                'tasks': 'tasks',
+                                'folders': 'tasks',
+                                'docs': 'docs',
+                                'chat': 'chat',
+                                'agent': 'agent',
+                                'settings': 'settings'
+                            }
+                            suggested_module = module_map.get(command_module)
+                            if suggested_module:
+                                print(format_info(f"This command belongs to the '{suggested_module}' module."))
+                                print(format_tip(f"Type: {suggested_module}"))
+                        continue
+                
                 try:
                     # Execute command
                     command_function(*args)

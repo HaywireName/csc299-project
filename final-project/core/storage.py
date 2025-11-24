@@ -32,13 +32,34 @@ class DataManager:
         """Initialize the DataManager with a data directory."""
         self.data_dir = Path(data_dir)
         self.tasks_file = self.data_dir / 'tasks.json'
-        self.pdf_metadata_file = self.data_dir / 'pdf_metadata.json'
+        self.docs_metadata_file = self.data_dir / 'docs_metadata.json'
         self.chat_history_file = self.data_dir / 'chat_history.json'
 
         # Ensure default files exist
         JSONStorage.ensure_file_exists(self.tasks_file, {"folders": {"default": []}, "current_folder": "default"})
-        JSONStorage.ensure_file_exists(self.pdf_metadata_file, {"documents": []})
+        JSONStorage.ensure_file_exists(self.docs_metadata_file, [])
         JSONStorage.ensure_file_exists(self.chat_history_file, {"conversations": []})
+    
+    def load(self, filename):
+        """Load a JSON file from the data directory."""
+        filepath = self.data_dir / filename
+        return JSONStorage.load(filepath)
+    
+    def save(self, filename, data):
+        """Save data to a JSON file in the data directory."""
+        filepath = self.data_dir / filename
+        JSONStorage.save(filepath, data)
+    
+    def get_current_folder(self):
+        """Get the current task folder name."""
+        data = JSONStorage.load(self.tasks_file)
+        return data.get("current_folder", "default")
+    
+    def set_current_folder(self, folder_name):
+        """Set the current task folder name."""
+        data = JSONStorage.load(self.tasks_file)
+        data["current_folder"] = folder_name
+        JSONStorage.save(self.tasks_file, data)
 
     def get_tasks(self, folder_name='default'):
         """Load tasks.json and return tasks for the specified folder."""
@@ -54,16 +75,25 @@ class DataManager:
         JSONStorage.save(self.tasks_file, data)
 
     def get_pdfs(self):
-        """Load and return pdf_metadata.json."""
-        return JSONStorage.load(self.pdf_metadata_file).get("documents", [])
+        """Load and return docs_metadata.json."""
+        docs_data = JSONStorage.load(self.docs_metadata_file)
+        # Return as array if it's already an array, otherwise get documents key
+        if isinstance(docs_data, list):
+            return docs_data
+        return docs_data.get("documents", [])
 
     def save_pdf_metadata(self, pdf_data):
-        """Save PDF metadata to pdf_metadata.json."""
-        data = JSONStorage.load(self.pdf_metadata_file)
-        if "documents" not in data:
-            data["documents"] = []
-        data["documents"].append(pdf_data)
-        JSONStorage.save(self.pdf_metadata_file, data)
+        """Save document metadata to docs_metadata.json."""
+        data = JSONStorage.load(self.docs_metadata_file)
+        # Handle both array format and object format
+        if isinstance(data, list):
+            data.append(pdf_data)
+            JSONStorage.save(self.docs_metadata_file, data)
+        else:
+            if "documents" not in data:
+                data["documents"] = []
+            data["documents"].append(pdf_data)
+            JSONStorage.save(self.docs_metadata_file, data)
 
     def get_chat_history(self):
         """Load and return chat_history.json."""

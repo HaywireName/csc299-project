@@ -19,6 +19,7 @@ env/
 ENV/
 .pytest_cache/
 .coverage
+htmlcov/
 *.log
 
 # Operating System Files

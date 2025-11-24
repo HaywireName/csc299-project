@@ -47,20 +47,31 @@ class AgentManager:
             "%Y-%m-%d",
             "%m/%d/%Y",
             "%Y/%m/%d",
-            "%m/%d",
-            "%m-%d",
             "%d-%m-%Y",
         ]
         
+        # Try formats with full dates first
         for fmt in formats:
             try:
                 parsed = datetime.strptime(date_str, fmt)
-                # If no year specified, assume current year
-                if fmt in ["%m/%d", "%m-%d"]:
-                    parsed = parsed.replace(year=datetime.now().year)
                 return parsed
             except ValueError:
                 continue
+        
+        # Handle formats without year by appending current year
+        current_year = datetime.now().year
+        short_formats = [
+            ("%m/%d", f"{date_str}/{current_year}", "%m/%d/%Y"),
+            ("%m-%d", f"{date_str}-{current_year}", "%m-%d-%Y"),
+        ]
+        
+        for pattern, date_with_year, fmt in short_formats:
+            if date_str.count('/') == 1 or date_str.count('-') == 1:
+                try:
+                    parsed = datetime.strptime(date_with_year, fmt)
+                    return parsed
+                except ValueError:
+                    continue
         
         return None
 
@@ -757,7 +768,7 @@ Structure your response as:
         for doc in docs_data:
             doc_id = doc.get('id')
             doc_title = doc.get('title', doc.get('filename', 'Untitled'))
-            doc_summary = doc.get('summary', '').lower()
+            doc_summary = (doc.get('summary') or '').lower()
             
             connected_tasks = []
             
