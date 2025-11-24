@@ -8,6 +8,7 @@ from modules.task_module import TaskManager
 from modules.docs_module import DocumentManager
 from modules.chat_module import ChatManager
 from modules.agent_module import AgentManager
+from modules.settings_module import SettingsManager
 
 class SessionState:
     """Manages session state for module switching and context."""
@@ -123,10 +124,11 @@ def show_main_menu(stats):
     
     print("\n" + "=" * 60)
     print("\n📦 Available Modules:")
-    print("  tasks  - Task management and organization")
-    print("  docs   - Document library (PDF, DOCX, TXT)")
-    print("  chat   - AI chatbot assistant")
-    print("  agent  - AI analysis and synthesis")
+    print("  tasks    - Task management and organization")
+    print("  docs     - Document library (PDF, DOCX, TXT)")
+    print("  chat     - AI chatbot assistant")
+    print("  agent    - AI analysis and synthesis")
+    print("  settings - Application configuration")
     print("\n💡 Commands:")
     print("  Type module name to enter (e.g., 'tasks', 'docs')")
     print("  status         - Show current context")
@@ -145,6 +147,8 @@ def help_command_main_menu(registry):
     chat_cmds = []
     agent_cmds = []
     
+    settings_cmds = []
+    
     for name, description, category in commands:
         if category == 'global':
             global_cmds.append((name, description))
@@ -156,6 +160,8 @@ def help_command_main_menu(registry):
             chat_cmds.append((name, description))
         elif category == 'agent':
             agent_cmds.append((name, description))
+        elif category == 'settings':
+            settings_cmds.append((name, description))
     
     print("\n" + "=" * 60)
     print("Available Commands")
@@ -192,6 +198,9 @@ def help_command_main_menu(registry):
     for name, desc in agent_cmds:
         print(f"  {name:<14} - {desc}")
     
+    print("\n⚙️  Settings:")
+    print("  settings       - Manage application configuration")
+    
     print("\n" + "=" * 60 + "\n")
 
 def help_command_module(registry, module_name):
@@ -207,7 +216,8 @@ def help_command_module(registry, module_name):
         'tasks': ['tasks', 'folders', 'task'],  # tasks module includes folder commands
         'docs': ['docs', 'doc'],
         'chat': ['chat'],
-        'agent': ['agent']
+        'agent': ['agent'],
+        'settings': ['settings']
     }
     
     target_categories = category_map.get(module_name, [])
@@ -223,7 +233,7 @@ def help_command_module(registry, module_name):
     for name, description, category in commands:
         if category == 'global':
             # Skip module entry commands in module help
-            if name not in ['tasks', 'docs', 'chat', 'agent']:
+            if name not in ['tasks', 'docs', 'chat', 'agent', 'settings']:
                 global_cmds.append((name, description))
         elif category in target_categories:
             # Remove module prefix for display
@@ -270,6 +280,9 @@ def main():
     registry = CommandRegistry()
     data_manager = DataManager()
 
+    # Initialize SettingsManager first (other modules may use settings)
+    settings_manager = SettingsManager(data_manager, registry)
+    
     # Initialize TaskManager (this will register task commands)
     task_manager = TaskManager(data_manager, registry)
     
