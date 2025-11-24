@@ -1,24 +1,42 @@
 import sys
+import json
+import os
 from config import check_api_key
 from core.commands import CommandRegistry, parse_command
 from modules.task_module import TaskManager
+from modules.docs_module import DocumentManager
 
 class DataManager:
-    """Simple data manager for storing tasks in memory."""
+    """Data manager for persisting data to JSON files."""
     def __init__(self):
-        self.data = {}
+        self.data_dir = os.path.join(os.path.dirname(__file__), 'data')
+        
+        # Ensure data directory exists
+        os.makedirs(self.data_dir, exist_ok=True)
 
     def get_current_folder(self):
         """Return the current folder name."""
         return "tasks"
 
-    def load(self, folder):
-        """Load data from a folder."""
-        return self.data.get(folder, [])
+    def load(self, filename):
+        """Load data from JSON file."""
+        try:
+            filepath = os.path.join(self.data_dir, filename)
+            if os.path.exists(filepath):
+                with open(filepath, 'r') as f:
+                    return json.load(f)
+        except Exception as e:
+            print(f"Warning: Could not load {filename}: {e}")
+        return None
 
-    def save(self, folder, tasks):
-        """Save data to a folder."""
-        self.data[folder] = tasks
+    def save(self, filename, data):
+        """Save data to JSON file."""
+        try:
+            filepath = os.path.join(self.data_dir, filename)
+            with open(filepath, 'w') as f:
+                json.dump(data, f, indent=2)
+        except Exception as e:
+            print(f"Error: Could not save {filename}: {e}")
 
 # Define command functions
 def help_command(registry):
@@ -52,6 +70,9 @@ def main():
 
     # Initialize TaskManager (this will register task commands)
     task_manager = TaskManager(data_manager, registry)
+    
+    # Initialize DocumentManager (this will register document commands)
+    document_manager = DocumentManager(data_manager, registry)
 
     # Register global commands
     registry.register_command('help', lambda: help_command(registry), 'Show available commands', 'global')
@@ -64,7 +85,8 @@ def main():
 
     while True:
         try:
-            user_input = input("pkms> ")
+            current_folder = task_manager.data["current_folder"]
+            user_input = input(f"pkms[{current_folder}]> ")
             command_name, args = parse_command(user_input)
 
             if not command_name:
