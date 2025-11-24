@@ -1,0 +1,130 @@
+═══════════════════════════════════════════════════════════════
+PKMS Task Manager - API Key Setup Instructions
+═══════════════════════════════════════════════════════════════
+
+This program requires an OpenAI API key set as a system environment variable.
+
+STEP 1: Get Your API Key
+────────────────────────
+1. Go to: https://platform.openai.com/api-keys
+2. Sign in or create an account
+3. Click "Create new secret key"
+4. Copy the key (starts with 'sk-')
+
+STEP 2: Set Environment Variable
+────────────────────────────────
+
+WINDOWS:
+--------
+Option A: Temporary (current terminal session only)
+  Command Prompt:
+    set OPENAI_API_KEY=sk-your-key-here
+  
+  PowerShell:
+    $env:OPENAI_API_KEY="sk-your-key-here"
+
+Option B: Permanent (recommended)
+  1. Search for "Environment Variables" in Start Menu
+  2. Click "Edit environment variables for your account"
+  3. Click "New" under User variables
+  4. Variable name: OPENAI_API_KEY
+  5. Variable value: sk-your-key-here
+  6. Click OK, close all windows
+  7. RESTART your terminal/command prompt
+
+macOS / Linux:
+--------------
+Option A: Temporary (current terminal session only)
+  export OPENAI_API_KEY='sk-your-key-here'
+
+Option B: Permanent (recommended)
+  1. Open your shell configuration file:
+     # For bash (most common):
+     nano ~/.bashrc
+     
+     # For zsh (macOS default):
+     nano ~/.zshrc
+  
+  2. Add this line at the end:
+     export OPENAI_API_KEY='sk-your-key-here'
+  
+  3. Save and close (Ctrl+X, then Y, then Enter)
+  
+  4. Reload configuration:
+     # For bash:
+     source ~/.bashrc
+     
+     # For zsh:
+     source ~/.zshrc
+
+STEP 2.5: Set Up a Virtual Environment (Recommended)
+─────────────────────────────────────────────────────
+Using a virtual environment ensures that dependencies for this project do not interfere with other Python projects on your system.
+
+1. Create a virtual environment:
+   ```bash
+   python3 -m venv venv
+   ```
+
+2. Activate the virtual environment:
+   - **macOS/Linux:**
+     ```bash
+     source venv/bin/activate
+     ```
+   - **Windows (Command Prompt):**
+     ```cmd
+     venv\Scripts\activate
+     ```
+   - **Windows (PowerShell):**
+     ```powershell
+     .\venv\Scripts\Activate.ps1
+     ```
+
+3. Install the required dependencies:
+   ```bash
+   pip install -r requirements.txt
+   ```
+
+4. Once activated, the virtual environment will isolate this project's dependencies. To deactivate it, run:
+   ```bash
+   deactivate
+   ```
+
+STEP 3: Verify Setup
+────────────────────
+Run this command to verify the key is set:
+
+  Windows (Command Prompt):
+    echo %OPENAI_API_KEY%
+  
+  Windows (PowerShell):
+    echo $env:OPENAI_API_KEY
+  
+  macOS / Linux:
+    echo $OPENAI_API_KEY
+
+You should see your API key (starts with 'sk-')
+
+STEP 4: Run the Program
+────────────────────────
+  python main.py
+
+═══════════════════════════════════════════════════════════════
+TROUBLESHOOTING
+═══════════════════════════════════════════════════════════════
+
+"API key not found" error:
+  - Make sure you set the variable name exactly as: OPENAI_API_KEY
+  - On Windows: Did you restart your terminal after setting permanent variable?
+  - On macOS/Linux: Did you run 'source ~/.bashrc' or 'source ~/.zshrc'?
+  - Try the temporary method first to test
+
+"Invalid API key format" error:
+  - Make sure your key starts with 'sk-'
+  - No extra spaces or quotes around the key
+  - Copy the entire key from OpenAI
+
+Still having issues?
+  - Verify the variable is set: echo $OPENAI_API_KEY (Unix) or echo %OPENAI_API_KEY% (Windows)
+  - Try closing ALL terminal windows and opening a new one
+  - Make sure you're running the program in the same terminal where you set the variable

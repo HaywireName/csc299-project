@@ -10,3 +10,8 @@ tasks1/todos.json
 tasks1/tasks.json
 tasks2/tasks.json
 todos.json
+pkms-cli/
+csc299-project-backup-*/
+csc299-project-backup-*.zip
+csc299-project-data-backup-*.zip
+data/
