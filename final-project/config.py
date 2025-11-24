@@ -1,14 +1,24 @@
 import os
 from pathlib import Path
+from core.storage import DataManager
 
 # Paths
 BASE_DIR = Path(__file__).parent
 DATA_DIR = BASE_DIR / "data"
-PDFS_DIR = DATA_DIR / "pdfs"
+DOCS_DIR = DATA_DIR / "docs"
+PDFS_DIR = DOCS_DIR / "pdfs"
+DOCX_DIR = DOCS_DIR / "docx"
+TXTS_DIR = DOCS_DIR / "txt"
 
 # Create directories
 DATA_DIR.mkdir(parents=True, exist_ok=True)
+DOCS_DIR.mkdir(parents=True, exist_ok=True)
 PDFS_DIR.mkdir(parents=True, exist_ok=True)
+DOCX_DIR.mkdir(parents=True, exist_ok=True)
+TXTS_DIR.mkdir(parents=True, exist_ok=True)
+
+# Create a global instance of DataManager
+data_manager = DataManager(DATA_DIR)
 
 def get_api_key():
     """
