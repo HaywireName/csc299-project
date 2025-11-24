@@ -5,3 +5,4 @@ python-dateutil>=2.8.0
 colorama>=0.4.6
 tqdm>=4.66.0
 python-docx>=0.8.11
+pyreadline3>=3.4.1; sys_platform == 'win32'

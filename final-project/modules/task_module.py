@@ -5,6 +5,8 @@ from datetime import datetime, timedelta
 from tabulate import tabulate
 from dateutil import parser as date_parser
 from openai import OpenAI
+from core.errors import TaskNotFoundError, InvalidInputError, APIError, ValidationError
+from core.utils import validate_priority, confirm_action, format_success, format_error, format_warning
 
 class TaskManager:
     def __init__(self, data_manager, registry):
@@ -153,9 +155,14 @@ class TaskManager:
         Implements retry logic with exponential backoff.
         :param text: The text to summarize
         :return: Summary string
+        :raises APIError: If API call fails after retries
         """
         if not self.openai_client:
-            raise ValueError("OpenAI client not initialized. Check your API key.")
+            raise APIError(
+                "OpenAI client not initialized",
+                error_type="authentication",
+                suggestion="Check your API key in settings"
+            )
         
         max_retries = 3
         base_delay = 1  # Start with 1 second delay
@@ -189,55 +196,67 @@ class TaskManager:
                 return summary
                 
             except Exception as e:
-                error_msg = str(e)
+                error_msg = str(e).lower()
                 
                 # Check for specific error types
-                if "rate_limit" in error_msg.lower():
+                if "rate_limit" in error_msg or "429" in error_msg:
                     if attempt < max_retries - 1:
                         delay = base_delay * (2 ** attempt)  # Exponential backoff
-                        print(f"Rate limit hit. Retrying in {delay} seconds...")
+                        print(f"⏳ Rate limit hit. Retrying in {delay} seconds...")
                         time.sleep(delay)
                         continue
                     else:
-                        raise ValueError("Rate limit exceeded. Please try again later.")
-                elif "invalid" in error_msg.lower() and "key" in error_msg.lower():
-                    raise ValueError("Invalid API key. Please check your OPENAI_API_KEY.")
-                elif "network" in error_msg.lower() or "connection" in error_msg.lower():
+                        raise APIError("Rate limit exceeded", error_type="rate_limit")
+                
+                elif "invalid" in error_msg and ("key" in error_msg or "401" in error_msg):
+                    raise APIError("Invalid API key", error_type="authentication")
+                
+                elif "quota" in error_msg or "insufficient" in error_msg:
+                    raise APIError("API quota exceeded", error_type="quota")
+                
+                elif "network" in error_msg or "connection" in error_msg or "timeout" in error_msg:
                     if attempt < max_retries - 1:
                         delay = base_delay * (2 ** attempt)
-                        print(f"Network error. Retrying in {delay} seconds...")
+                        print(f"⏳ Network error. Retrying in {delay} seconds...")
                         time.sleep(delay)
                         continue
                     else:
-                        raise ValueError("Network error. Please check your connection.")
+                        raise APIError("Network connection failed", error_type="network")
+                
                 else:
-                    raise ValueError(f"OpenAI API error: {error_msg}")
+                    raise APIError(f"Unexpected error: {str(e)}")
         
-        raise ValueError("Failed to generate summary after multiple attempts.")
+        raise APIError("Failed to generate summary after multiple attempts")
 
     def summarize_task(self, task_id):
         """
         Generate an AI summary for a task if description is longer than 100 words.
         :param task_id: ID or partial ID of the task
         :return: The summary string
+        :raises TaskNotFoundError: If task not found
+        :raises InvalidInputError: If description is too short or missing
+        :raises APIError: If OpenAI API call fails
         """
-        task = self.get_task(task_id)
-        if not task:
-            raise ValueError(f"Task with ID {task_id} not found.")
+        task = self.get_task(task_id)  # This will raise TaskNotFoundError if not found
         
         description = task.get('description', '')
         if not description:
-            raise ValueError("Task has no description to summarize.")
+            raise InvalidInputError("Task has no description to summarize", field="description")
         
         word_count = self._count_words(description)
         if word_count <= 100:
-            raise ValueError(f"Description is short ({word_count} words), no summary needed.")
+            raise InvalidInputError(
+                f"Description is too short ({word_count} words). Minimum 100 words required for summarization.",
+                field="description"
+            )
         
-        # Generate summary
+        # Generate summary (may raise APIError)
+        print(f"Generating summary for task '{task['title']}'...")
         summary = self._call_openai_summary(description)
         task['summary'] = summary
         self._save_data()
         
+        print(format_success(f"Summary generated ({len(summary)} characters)"))
         return summary
 
     def add_task(self, title, description="", deadline=None, priority="medium"):
@@ -248,22 +267,33 @@ class TaskManager:
         :param deadline: Deadline in DD-MM-YYYY format.
         :param priority: Priority level (low/medium/high).
         :return: The created task.
+        :raises InvalidInputError: If input validation fails.
         """
-        if not title.strip():
-            raise ValueError("Task title cannot be empty.")
+        if not title or not title.strip():
+            raise InvalidInputError("Task title cannot be empty", field="title")
+        
+        # Validate priority
+        validated_priority = validate_priority(priority)
+        if not validated_priority:
+            raise InvalidInputError(
+                f"Invalid priority: {priority}",
+                field="priority",
+                valid_values=["low", "medium", "high", "l", "m", "h"]
+            )
 
         task = {
             "id": self._generate_id(),
             "title": title[:30],
             "description": description,
             "deadline": deadline,
-            "priority": priority,
+            "priority": validated_priority,
             "status": "pending",
             "summary": None,
             "created": datetime.now().strftime("%d-%m-%YT%H:%M:%S")
         }
         self.tasks.append(task)
         self._save_data()
+        print(format_success(f"Task added: {task['title']} [ID: {task['id'][:8]}]"))
         return task
 
     def list_tasks(self):
@@ -278,36 +308,45 @@ class TaskManager:
         """
         Mark a task as completed.
         :param task_id: ID or partial ID of the task.
+        :raises TaskNotFoundError: If task not found.
         """
-        task = self.get_task(task_id)
-        if task:
-            task['status'] = 'completed'
-            self._save_tasks()
-        else:
-            raise ValueError(f"Task with ID {task_id} not found.")
+        task = self.get_task(task_id)  # This will raise TaskNotFoundError if not found
+        task['status'] = 'completed'
+        self._save_tasks()
+        print(format_success(f"Task completed: {task['title']}"))
 
     def remove_task(self, task_id):
         """
-        Remove a task by ID.
+        Remove a task by ID with confirmation.
         :param task_id: ID or partial ID of the task.
+        :raises TaskNotFoundError: If task not found.
         """
-        task = self.get_task(task_id)
-        if task:
-            self.tasks.remove(task)
-            self._save_tasks()
-        else:
-            raise ValueError(f"Task with ID {task_id} not found.")
+        task = self.get_task(task_id)  # This will raise TaskNotFoundError if not found
+        
+        # Confirm deletion
+        task_title = task['title']
+        if not confirm_action(f"Delete task '{task_title}'? (yes/no):", require_yes=False):
+            print(format_warning("Deletion cancelled"))
+            return
+        
+        self.tasks.remove(task)
+        self._save_tasks()
+        print(format_success(f"Task deleted: {task_title}"))
 
     def get_task(self, task_id):
         """
         Retrieve a task by full or partial ID.
         :param task_id: Full or partial ID of the task.
         :return: The matching task.
+        :raises TaskNotFoundError: If task not found.
         """
         for task in self.tasks:
             if task['id'].startswith(task_id):
                 return task
-        return None
+        
+        # Task not found - raise error with available IDs
+        available_ids = [task['id'][:8] for task in self.tasks]
+        raise TaskNotFoundError(task_id, available_ids)
 
     def edit_task(self, task_id, **kwargs):
         """

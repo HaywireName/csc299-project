@@ -8,6 +8,8 @@ from PyPDF2 import PdfReader
 from docx import Document
 from tqdm import tqdm
 from openai import OpenAI
+from core.errors import PDFNotFoundError, InvalidInputError, APIError, StorageError
+from core.utils import confirm_action, format_success, format_error, format_warning, print_progress_bar
 
 
 class DocumentManager:
@@ -241,34 +243,49 @@ class DocumentManager:
 
     def remove_doc(self, doc_id):
         """
-        Remove a document by ID.
+        Remove a document by ID with confirmation.
         :param doc_id: Full or partial document ID
+        :raises PDFNotFoundError: If document not found
+        :raises StorageError: If file deletion fails
         """
-        doc = self.get_doc(doc_id)
-        if not doc:
-            raise ValueError(f"Document with ID {doc_id} not found.")
+        doc = self.get_doc(doc_id)  # This will raise PDFNotFoundError if not found
+        
+        # Confirm deletion
+        doc_name = doc['name']
+        if not confirm_action(f"Delete document '{doc_name}'? (yes/no):", require_yes=False):
+            print(format_warning("Deletion cancelled"))
+            return
         
         # Delete file
         try:
             if os.path.exists(doc['filepath']):
                 os.remove(doc['filepath'])
         except Exception as e:
-            raise Exception(f"Failed to delete file: {e}")
+            raise StorageError(
+                f"Failed to delete file: {str(e)}",
+                filepath=doc['filepath'],
+                operation="delete"
+            )
         
         # Remove from list
         self.documents.remove(doc)
         self._save_documents()
+        print(format_success(f"Document deleted: {doc_name}"))
 
     def get_doc(self, doc_id):
         """
         Retrieve a document by full or partial ID.
         :param doc_id: Full or partial document ID
-        :return: Document metadata or None
+        :return: Document metadata
+        :raises PDFNotFoundError: If document not found
         """
         for doc in self.documents:
             if doc['id'].startswith(str(doc_id)):
                 return doc
-        return None
+        
+        # Document not found - raise error with available IDs
+        available_ids = [doc['id'][:8] for doc in self.documents]
+        raise PDFNotFoundError(doc_id, available_ids)
 
     def update_last_accessed(self, doc_id):
         """Update the last_accessed timestamp for a document."""

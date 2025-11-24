@@ -1,9 +1,28 @@
 import sys
 import json
 import os
+import random
+import difflib
+import traceback
 from datetime import datetime
+from pathlib import Path
+
+# Try to import readline for command history (Unix/Mac)
+try:
+    import readline
+    READLINE_AVAILABLE = True
+except ImportError:
+    # Try pyreadline3 for Windows
+    try:
+        import pyreadline3 as readline
+        READLINE_AVAILABLE = True
+    except ImportError:
+        READLINE_AVAILABLE = False
+
 from config import check_api_key
 from core.commands import CommandRegistry, parse_command
+from core.errors import PKMSError, TaskNotFoundError, PDFNotFoundError, InvalidInputError, APIError, StorageError, ValidationError
+from core.utils import format_error, format_success, format_warning, format_info, format_tip, get_tips
 from modules.task_module import TaskManager
 from modules.docs_module import DocumentManager
 from modules.chat_module import ChatManager
@@ -15,6 +34,8 @@ class SessionState:
     def __init__(self):
         self.current_module = None  # None = main menu
         self.session_start = datetime.now()
+        self.first_run = True  # Track if this is first command
+        self.commands_executed = 0
     
     def set_module(self, module_name):
         """Set current active module."""
@@ -23,6 +44,12 @@ class SessionState:
     def reset_module(self):
         """Return to main menu."""
         self.current_module = None
+    
+    def increment_commands(self):
+        """Increment command counter."""
+        self.commands_executed += 1
+        if self.first_run:
+            self.first_run = False
 
 class DataManager:
     """Data manager for persisting data to JSON files."""
@@ -262,6 +289,73 @@ def help_command_module(registry, module_name):
     
     print("=" * 60 + "\n")
 
+def setup_command_history():
+    """Setup readline command history if available."""
+    if not READLINE_AVAILABLE:
+        return
+    
+    # Create history file path
+    data_dir = Path(__file__).parent / 'data'
+    history_file = data_dir / '.history'
+    
+    # Configure readline
+    readline.set_history_length(100)
+    
+    # Load existing history if it exists
+    if history_file.exists():
+        try:
+            readline.read_history_file(str(history_file))
+        except Exception:
+            pass  # Ignore errors loading history
+    
+    return history_file
+
+
+def save_command_history(history_file):
+    """Save command history to file."""
+    if not READLINE_AVAILABLE or not history_file:
+        return
+    
+    try:
+        readline.write_history_file(str(history_file))
+    except Exception:
+        pass  # Ignore errors saving history
+
+
+def show_random_tip():
+    """Display a random helpful tip."""
+    tips = get_tips()
+    tip = random.choice(tips)
+    print(format_tip(tip))
+
+
+def find_similar_commands(command_name, registry):
+    """Find similar commands using fuzzy matching."""
+    all_commands = [name for name, _, _ in registry.list_commands()]
+    
+    # Use difflib to find close matches
+    matches = difflib.get_close_matches(command_name, all_commands, n=3, cutoff=0.6)
+    return matches
+
+
+def log_error_to_file(error, context=""):
+    """Log error details to error log file."""
+    data_dir = Path(__file__).parent / 'data'
+    error_log = data_dir / 'error.log'
+    
+    try:
+        with open(error_log, 'a') as f:
+            f.write(f"\n{'=' * 60}\n")
+            f.write(f"Time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+            if context:
+                f.write(f"Context: {context}\n")
+            f.write(f"Error: {str(error)}\n")
+            f.write(f"Type: {type(error).__name__}\n")
+            f.write(f"Traceback:\n{traceback.format_exc()}\n")
+    except Exception:
+        pass  # Silently fail if can't write to log
+
+
 def exit_command():
     """Exit the program."""
     print("Goodbye!")
@@ -386,9 +480,18 @@ def main():
     registry.register_command('docs', cmd_docs, 'Enter docs module', 'global')
     registry.register_command('agent', cmd_agent_module, 'Enter agent module', 'global')
 
+    # Setup command history
+    history_file = setup_command_history()
+    
     # Show initial main menu
     stats = get_quick_stats(task_manager, document_manager)
     show_main_menu(stats)
+    
+    # Show tip on first run
+    if session.first_run:
+        print()
+        show_random_tip()
+        print()
 
     # Main loop
     while True:
@@ -403,6 +506,8 @@ def main():
                 prompt = "chat> "
             elif session.current_module == 'agent':
                 prompt = "agent> "
+            elif session.current_module == 'settings':
+                prompt = "settings> "
             else:
                 prompt = "pkms> "
             
@@ -436,17 +541,84 @@ def main():
 
             if command_function:
                 try:
+                    # Execute command
                     command_function(*args)
+                    session.increment_commands()
+                    
+                    # Show random tip every 10 commands
+                    if session.commands_executed % 10 == 0 and session.commands_executed > 0:
+                        print()
+                        show_random_tip()
+                        print()
+                
+                except TaskNotFoundError as e:
+                    print(format_error(str(e)))
+                
+                except PDFNotFoundError as e:
+                    print(format_error(str(e)))
+                
+                except InvalidInputError as e:
+                    print(format_error(str(e)))
+                
+                except ValidationError as e:
+                    print(format_error(str(e)))
+                
+                except APIError as e:
+                    print(format_error(str(e)))
+                
+                except StorageError as e:
+                    print(format_error(str(e)))
+                    log_error_to_file(e, f"Command: {actual_command_name}")
+                
+                except PKMSError as e:
+                    # Catch any other custom PKMS errors
+                    print(format_error(str(e)))
+                
+                except KeyboardInterrupt:
+                    # Ctrl+C during command execution - cancel operation
+                    print("\n" + format_warning("Operation cancelled"))
+                    continue
+                
                 except Exception as e:
-                    print(f"Error executing command '{actual_command_name}': {e}")
+                    # Unexpected error - log it and show generic message
+                    print(format_error(f"An unexpected error occurred: {str(e)}"))
+                    log_error_to_file(e, f"Command: {actual_command_name} {' '.join(args)}")
+                    print(format_info("Error details have been logged to data/error.log"))
+            
             else:
-                print(f"Unknown command: {command_name}. Type 'help' for available commands.")
+                # Command not found - suggest similar commands
+                print(format_error(f"Unknown command: '{command_name}'"))
+                
+                similar = find_similar_commands(command_name, registry)
+                if similar:
+                    if len(similar) == 1:
+                        print(format_tip(f"Did you mean '{similar[0]}'?"))
+                    else:
+                        suggestions = ', '.join([f"'{cmd}'" for cmd in similar])
+                        print(format_tip(f"Did you mean: {suggestions}?"))
+                else:
+                    print(format_info("Type 'help' for available commands"))
+        
         except KeyboardInterrupt:
-            print("\nGoodbye!")
-            break
+            # Ctrl+C at prompt - ask to exit
+            try:
+                print()
+                response = input("Exit program? (y/n): ").strip().lower()
+                if response in ['y', 'yes']:
+                    print("Goodbye!")
+                    break
+            except (KeyboardInterrupt, EOFError):
+                # Double Ctrl+C or Ctrl+D - exit immediately
+                print("\nGoodbye!")
+                break
+        
         except EOFError:
+            # Ctrl+D - exit immediately
             print("\nGoodbye!")
             break
+    
+    # Save command history before exiting
+    save_command_history(history_file)
 
 if __name__ == '__main__':
     main()
