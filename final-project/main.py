@@ -5,6 +5,8 @@ from config import check_api_key
 from core.commands import CommandRegistry, parse_command
 from modules.task_module import TaskManager
 from modules.docs_module import DocumentManager
+from modules.chat_module import ChatManager
+from modules.agent_module import AgentManager
 
 class DataManager:
     """Data manager for persisting data to JSON files."""
@@ -73,6 +75,12 @@ def main():
     
     # Initialize DocumentManager (this will register document commands)
     document_manager = DocumentManager(data_manager, registry)
+    
+    # Initialize ChatManager (this will register chat commands)
+    chat_manager = ChatManager(data_manager, registry)
+    
+    # Initialize AgentManager (this will register agent commands)
+    agent_manager = AgentManager(data_manager, task_manager, registry, document_manager)
 
     # Register global commands
     registry.register_command('help', lambda: help_command(registry), 'Show available commands', 'global')

@@ -334,6 +334,15 @@ class TaskManager:
         self._save_tasks()
         return task
 
+    def update_task(self, task_id, **kwargs):
+        """
+        Update task fields (wrapper for edit_task for compatibility).
+        :param task_id: ID or partial ID of the task.
+        :param kwargs: Fields to update (description, deadline, priority).
+        :return: The updated task.
+        """
+        return self.edit_task(task_id, **kwargs)
+
     def get_task_details(self, task_id):
         """
         Return formatted string with all task fields.
