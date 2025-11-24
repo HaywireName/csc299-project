@@ -20,7 +20,7 @@ class CommandRegistry:
     def list_commands(self, module=None):
         """List all commands, optionally filtered by module."""
         return [
-            (name, cmd['description'])
+            (name, cmd['description'], cmd['module'])
             for name, cmd in self.commands.items()
             if module is None or cmd['module'] == module
         ]
