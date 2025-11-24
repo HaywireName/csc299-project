@@ -1,9 +1,27 @@
 import sys
 from config import check_api_key
 from core.commands import CommandRegistry, parse_command
+from modules.task_module import TaskManager
+
+class DataManager:
+    """Simple data manager for storing tasks in memory."""
+    def __init__(self):
+        self.data = {}
+
+    def get_current_folder(self):
+        """Return the current folder name."""
+        return "tasks"
+
+    def load(self, folder):
+        """Load data from a folder."""
+        return self.data.get(folder, [])
+
+    def save(self, folder, tasks):
+        """Save data to a folder."""
+        self.data[folder] = tasks
 
 # Define command functions
-def help_command():
+def help_command(registry):
     """Show available commands."""
     commands = registry.list_commands()
     print("Available commands:")
@@ -28,12 +46,15 @@ def main():
     # API key is valid, continue with program
     print("\n✓ OpenAI API key found and validated")
 
-    # Create global registry instance
-    global registry
+    # Create registry and data manager
     registry = CommandRegistry()
+    data_manager = DataManager()
+
+    # Initialize TaskManager (this will register task commands)
+    task_manager = TaskManager(data_manager, registry)
 
     # Register global commands
-    registry.register_command('help', help_command, 'Show available commands', 'global')
+    registry.register_command('help', lambda: help_command(registry), 'Show available commands', 'global')
     registry.register_command('exit', exit_command, 'Exit program', 'global')
     # Register 'quit' command with the same functionality as 'exit'
     registry.register_command('quit', exit_command, 'Exit program', 'global')
