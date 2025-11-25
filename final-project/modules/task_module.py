@@ -9,9 +9,30 @@ from core.errors import TaskNotFoundError, InvalidInputError, APIError, Validati
 from core.utils import validate_priority, confirm_action, format_success, format_error, format_warning
 
 class TaskManager:
+    """Manages task operations including CRUD, AI summarization, and folder organization.
+    
+    The TaskManager handles all task-related functionality including creating, reading,
+    updating, and deleting tasks, organizing them into folders, generating AI summaries
+    for task descriptions, and tracking API costs for AI operations.
+    
+    Attributes:
+        data_manager: Data persistence manager for loading/saving tasks.
+        registry: Command registry for registering task commands.
+        data: Complete task data structure with folders and current folder.
+        tasks: List of tasks in the current folder.
+        session_cost: Cumulative OpenAI API cost for the session.
+        openai_client: OpenAI API client instance.
+    """
+    
     def __init__(self, data_manager, registry):
-        """
-        Initialize TaskManager with dependencies.
+        """Initialize TaskManager with dependencies.
+        
+        Loads task data from storage, initializes the OpenAI client for AI features,
+        and registers all task-related commands with the command registry.
+        
+        Args:
+            data_manager: Data persistence manager instance.
+            registry: Command registry instance for registering commands.
         """
         self.data_manager = data_manager
         self.registry = registry
@@ -23,7 +44,15 @@ class TaskManager:
         self._register_commands()
 
     def _init_openai_client(self):
-        """Initialize OpenAI client with API key from environment."""
+        """Initialize OpenAI client with API key from environment.
+        
+        Attempts to create an OpenAI client using the API key from the
+        OPENAI_API_KEY environment variable. If the key is not found or
+        initialization fails, AI features will be disabled.
+        
+        Raises:
+            Prints warning if API key not found or initialization fails.
+        """
         try:
             api_key = os.environ.get('OPENAI_API_KEY')
             if api_key:
@@ -34,15 +63,31 @@ class TaskManager:
             print(f"Warning: Failed to initialize OpenAI client: {e}")
 
     def _save_data(self):
-        """Save the entire data structure to tasks.json."""
+        """Save the entire data structure to tasks.json.
+        
+        Persists the complete task data structure including all folders,
+        tasks, and metadata to the tasks.json file.
+        """
         self.data_manager.save("tasks.json", self.data)
 
     def get_folders(self):
-        """Return a dictionary of folder names and their task counts."""
+        """Return a dictionary of folder names and their task counts.
+        
+        Returns:
+            dict: Dictionary mapping folder names (str) to task counts (int).
+        """
         return {folder: len(tasks) for folder, tasks in self.data["folders"].items()}
 
     def switch_folder(self, folder_name):
-        """Switch to a different folder, creating it if necessary."""
+        """Switch to a different folder, creating it if necessary.
+        
+        Changes the current active folder to the specified folder name.
+        If the folder doesn't exist, it will be created automatically.
+        Updates the tasks reference to point to the new folder's tasks.
+        
+        Args:
+            folder_name: Name of the folder to switch to.
+        """
         if folder_name not in self.data["folders"]:
             self.data["folders"][folder_name] = []
         self.data["current_folder"] = folder_name
@@ -50,14 +95,36 @@ class TaskManager:
         self._save_data()
 
     def create_folder(self, folder_name):
-        """Create a new folder if it doesn't exist."""
+        """Create a new folder if it doesn't exist.
+        
+        Creates a new empty folder with the specified name. The folder
+        is immediately persisted to storage.
+        
+        Args:
+            folder_name: Name of the folder to create.
+        
+        Raises:
+            ValueError: If a folder with the same name already exists.
+        """
         if folder_name in self.data["folders"]:
             raise ValueError(f"Folder '{folder_name}' already exists.")
         self.data["folders"][folder_name] = []
         self._save_data()
 
     def delete_folder(self, folder_name):
-        """Delete a folder and all its tasks, except the default folder."""
+        """Delete a folder and all its tasks, except the default folder.
+        
+        Removes a folder and all tasks contained within it. The default
+        folder cannot be deleted. If the deleted folder is the current
+        folder, automatically switches to the default folder.
+        
+        Args:
+            folder_name: Name of the folder to delete.
+        
+        Raises:
+            ValueError: If trying to delete the default folder or if the
+                folder doesn't exist.
+        """
         if folder_name == "default":
             raise ValueError("Cannot delete the default folder.")
         if folder_name not in self.data["folders"]:
@@ -68,29 +135,77 @@ class TaskManager:
         self._save_data()
 
     def _load_tasks(self):
-        """Load tasks from the current folder."""
+        """Load tasks from the current folder.
+        
+        Loads tasks from storage for the currently active folder and
+        updates the tasks reference. If no tasks exist, initializes
+        with an empty list.
+        """
         folder = self._get_current_folder()
         self.tasks = self.data_manager.load(folder) or []
 
     def _save_tasks(self):
-        """Save tasks to the current folder."""
+        """Save tasks to the current folder.
+        
+        Persists the current tasks list to storage in the currently
+        active folder.
+        """
         folder = self._get_current_folder()
         self.data_manager.save(folder, self.tasks)
 
     def _get_current_folder(self):
-        """Return the current folder name from data."""
+        """Return the current folder name from data.
+        
+        Returns:
+            str: Name of the currently active folder.
+        """
         return self.data_manager.get_current_folder()
 
     def _generate_id(self):
-        """Generate a unique ID for a new task."""
+        """Generate a unique ID for a new task.
+        
+        Creates a simple numeric ID based on the current number of tasks
+        in the folder.
+        
+        Returns:
+            str: Unique task ID as a string.
+        """
         return str(len(self.tasks) + 1)
+    
+    def _reindex_tasks(self):
+        """Reindex all tasks with sequential IDs, completed tasks have separate numbering."""
+        # Separate pending and completed tasks
+        pending = [t for t in self.tasks if t['status'] != 'completed']
+        completed = [t for t in self.tasks if t['status'] == 'completed']
+        
+        # Reindex pending tasks (1, 2, 3...)
+        for idx, task in enumerate(pending, start=1):
+            task['id'] = str(idx)
+        
+        # Reindex completed tasks separately (1, 2, 3...)
+        for idx, task in enumerate(completed, start=1):
+            task['id'] = str(idx)
+        
+        # Update tasks list to maintain order
+        self.tasks[:] = pending + completed
 
     def _parse_deadline(self, deadline_str):
-        """
-        Parse deadline from various formats and return DD-MM-YYYY format.
-        Supports: DD-MM-YYYY, MM-DD-YYYY, YYYY-DD-MM, MM/DD, MM-YY, MM/DD/YYYY, YYYY/DD/MM, and 'tomorrow'
-        :param deadline_str: Deadline string in various formats
-        :return: Formatted deadline string in DD-MM-YYYY format
+        """Parse deadline from various formats and return DD-MM-YYYY format.
+        
+        Supports multiple date formats including DD-MM-YYYY, MM-DD-YYYY,
+        YYYY-DD-MM, MM/DD, MM-YY, MM/DD/YYYY, YYYY/DD/MM, and the keyword
+        'tomorrow'. Automatically handles separators (- or /).
+        
+        Args:
+            deadline_str: Deadline string in various supported formats.
+        
+        Returns:
+            str: Formatted deadline string in DD-MM-YYYY format, or None
+                if input is empty.
+        
+        Raises:
+            ValueError: If the deadline format is not recognized or if the
+                date is invalid.
         """
         if not deadline_str:
             return None
@@ -156,18 +271,36 @@ class TaskManager:
             raise ValueError(f"Invalid deadline format '{deadline_str}'. Supported formats: DD-MM-YYYY, MM-DD-YYYY, YYYY-DD-MM, MM/DD/YYYY, MM/DD, MM-YY, or 'tomorrow'")
 
     def _count_words(self, text):
-        """Count the number of words in a text string."""
+        """Count the number of words in a text string.
+        
+        Splits the text by whitespace and counts the resulting tokens.
+        
+        Args:
+            text: Text string to count words in.
+        
+        Returns:
+            int: Number of words in the text, or 0 if text is empty/None.
+        """
         if not text:
             return 0
         return len(text.split())
 
     def _call_openai_summary(self, text):
-        """
-        Call OpenAI API to generate a 10-15 word summary.
-        Implements retry logic with exponential backoff.
-        :param text: The text to summarize
-        :return: Summary string
-        :raises APIError: If API call fails after retries
+        """Call OpenAI API to generate a 10-15 word summary.
+        
+        Sends text to the OpenAI API for summarization using gpt-4o-mini.
+        Implements retry logic with exponential backoff for handling rate
+        limits and transient failures. Tracks token usage and costs.
+        
+        Args:
+            text: The text to summarize.
+        
+        Returns:
+            str: AI-generated summary of 10-15 words.
+        
+        Raises:
+            APIError: If the OpenAI client is not initialized, if API call
+                fails after retries, or if rate limits/quota are exceeded.
         """
         if not self.openai_client:
             raise APIError(
@@ -241,13 +374,22 @@ class TaskManager:
         raise APIError("Failed to generate summary after multiple attempts")
 
     def summarize_task(self, task_id):
-        """
-        Generate an AI summary for a task if description is longer than 100 words.
-        :param task_id: ID or partial ID of the task
-        :return: The summary string
-        :raises TaskNotFoundError: If task not found
-        :raises InvalidInputError: If description is too short or missing
-        :raises APIError: If OpenAI API call fails
+        """Generate an AI summary for a task description.
+        
+        Creates a concise AI-generated summary for tasks with descriptions
+        of at least 20 words. The summary is saved to the task metadata.
+        
+        Args:
+            task_id: Full or partial task ID.
+        
+        Returns:
+            str: The generated summary text.
+        
+        Raises:
+            TaskNotFoundError: If the task with the given ID is not found.
+            InvalidInputError: If the description is missing or shorter
+                than 20 words.
+            APIError: If the OpenAI API call fails.
         """
         task = self.get_task(task_id)  # This will raise TaskNotFoundError if not found
         
@@ -272,14 +414,23 @@ class TaskManager:
         return summary
 
     def add_task(self, title, description="", deadline=None, priority="medium"):
-        """
-        Add a new task to the current folder.
-        :param title: Title of the task.
-        :param description: Description of the task.
-        :param deadline: Deadline in DD-MM-YYYY format.
-        :param priority: Priority level (low/medium/high).
-        :return: The created task.
-        :raises InvalidInputError: If input validation fails.
+        """Add a new task to the current folder.
+        
+        Creates a new task with the specified properties and adds it to
+        the current folder. Title is truncated to 30 characters if longer.
+        Validates priority and generates a unique ID automatically.
+        
+        Args:
+            title: Title of the task (required, max 30 chars displayed).
+            description: Detailed description of the task. Defaults to empty string.
+            deadline: Deadline in DD-MM-YYYY format. Defaults to None.
+            priority: Priority level (low/medium/high or l/m/h). Defaults to 'medium'.
+        
+        Returns:
+            dict: The created task dictionary with all metadata.
+        
+        Raises:
+            InvalidInputError: If title is empty or priority is invalid.
         """
         if not title or not title.strip():
             raise InvalidInputError("Task title cannot be empty", field="title")
@@ -304,34 +455,50 @@ class TaskManager:
             "created": datetime.now().strftime("%d-%m-%YT%H:%M:%S")
         }
         self.tasks.append(task)
+        self._reindex_tasks()
         self._save_data()
-        print(format_success(f"Task added: {task['title']} [ID: {task['id'][:8]}]"))
+        print(format_success(f"Task added: {task['title']} [ID: {task['id']}]"))
         return task
 
     def list_tasks(self):
-        """
-        List all tasks in the current folder.
-        Completed tasks are displayed at the bottom.
-        :return: Sorted list of tasks.
+        """List all tasks in the current folder.
+        
+        Returns all tasks sorted with completed tasks at the bottom and
+        remaining tasks sorted by deadline.
+        
+        Returns:
+            list: Sorted list of task dictionaries.
         """
         return sorted(self.tasks, key=lambda t: (t['status'] == 'completed', t['deadline'] or ""))
 
     def complete_task(self, task_id):
-        """
-        Mark a task as completed.
-        :param task_id: ID or partial ID of the task.
-        :raises TaskNotFoundError: If task not found.
+        """Mark a task as completed.
+        
+        Updates the task status to 'completed' and saves the changes.
+        Reindexes tasks to update IDs.
+        
+        Args:
+            task_id: Full or partial task ID.
+        
+        Raises:
+            TaskNotFoundError: If the task with the given ID is not found.
         """
         task = self.get_task(task_id)  # This will raise TaskNotFoundError if not found
         task['status'] = 'completed'
-        self._save_tasks()
-        print(format_success(f"Task completed: {task['title']}"))
+        self._reindex_tasks()
+        self._save_data()
 
     def remove_task(self, task_id):
-        """
-        Remove a task by ID with confirmation.
-        :param task_id: ID or partial ID of the task.
-        :raises TaskNotFoundError: If task not found.
+        """Remove a task by ID with confirmation.
+        
+        Prompts for user confirmation before permanently deleting a task
+        from the current folder.
+        
+        Args:
+            task_id: Full or partial task ID.
+        
+        Raises:
+            TaskNotFoundError: If the task with the given ID is not found.
         """
         task = self.get_task(task_id)  # This will raise TaskNotFoundError if not found
         
@@ -342,15 +509,24 @@ class TaskManager:
             return
         
         self.tasks.remove(task)
-        self._save_tasks()
-        print(format_success(f"Task deleted: {task_title}"))
+        self._reindex_tasks()
+        self._save_data()
 
     def get_task(self, task_id):
-        """
-        Retrieve a task by full or partial ID.
-        :param task_id: Full or partial ID of the task.
-        :return: The matching task.
-        :raises TaskNotFoundError: If task not found.
+        """Retrieve a task by full or partial ID.
+        
+        Searches for a task where the ID starts with the provided string,
+        allowing partial ID matching for convenience.
+        
+        Args:
+            task_id: Full or partial task ID to search for.
+        
+        Returns:
+            dict: The matching task dictionary.
+        
+        Raises:
+            TaskNotFoundError: If no task with matching ID is found. Includes
+                list of available task IDs in the error.
         """
         for task in self.tasks:
             if task['id'].startswith(task_id):
@@ -361,11 +537,23 @@ class TaskManager:
         raise TaskNotFoundError(task_id, available_ids)
 
     def edit_task(self, task_id, **kwargs):
-        """
-        Update task fields (description, deadline, priority).
-        :param task_id: ID or partial ID of the task.
-        :param kwargs: Fields to update (description, deadline, priority).
-        :return: The updated task.
+        """Update task fields (description, deadline, priority).
+        
+        Modifies one or more fields of an existing task. Only provided
+        fields are updated; others remain unchanged.
+        
+        Args:
+            task_id: Full or partial task ID.
+            **kwargs: Fields to update. Supported keys:
+                - description: New description text.
+                - deadline: New deadline in DD-MM-YYYY format.
+                - priority: New priority (low/medium/high).
+        
+        Returns:
+            dict: The updated task dictionary.
+        
+        Raises:
+            ValueError: If task not found or priority value is invalid.
         """
         task = self.get_task(task_id)
         if not task:
@@ -386,19 +574,37 @@ class TaskManager:
         return task
 
     def update_task(self, task_id, **kwargs):
-        """
-        Update task fields (wrapper for edit_task for compatibility).
-        :param task_id: ID or partial ID of the task.
-        :param kwargs: Fields to update (description, deadline, priority).
-        :return: The updated task.
+        """Update task fields (wrapper for edit_task for compatibility).
+        
+        Convenience wrapper that calls edit_task. Provided for backward
+        compatibility and alternative naming.
+        
+        Args:
+            task_id: Full or partial task ID.
+            **kwargs: Fields to update (description, deadline, priority).
+        
+        Returns:
+            dict: The updated task dictionary.
+        
+        Raises:
+            ValueError: If task not found or field value is invalid.
         """
         return self.edit_task(task_id, **kwargs)
 
     def get_task_details(self, task_id):
-        """
-        Return formatted string with all task fields.
-        :param task_id: ID or partial ID of the task.
-        :return: Formatted task details string.
+        """Return formatted string with all task fields.
+        
+        Formats all task information into a readable multi-line string
+        with headers and separators.
+        
+        Args:
+            task_id: Full or partial task ID.
+        
+        Returns:
+            str: Formatted task details with all fields.
+        
+        Raises:
+            ValueError: If task with the given ID is not found.
         """
         task = self.get_task(task_id)
         if not task:
@@ -420,10 +626,16 @@ class TaskManager:
         return "\n".join(details)
 
     def search_tasks(self, query):
-        """
-        Return tasks where query appears in title or description (case-insensitive).
-        :param query: Search query string.
-        :return: List of matching tasks.
+        """Return tasks where query appears in title or description.
+        
+        Performs case-insensitive search across task titles and descriptions
+        in the current folder.
+        
+        Args:
+            query: Search query string.
+        
+        Returns:
+            list: List of matching task dictionaries.
         """
         query_lower = query.lower()
         results = []
@@ -435,7 +647,12 @@ class TaskManager:
         return results
 
     def _register_commands(self):
-        """Register task-related commands."""
+        """Register task-related commands.
+        
+        Registers all task management commands (add, list, complete, remove,
+        edit, view, search, summarize, cost, folders, folder) with the
+        command registry.
+        """
         self.registry.register_command('add', self.cmd_add, 'Add a new task', 'tasks')
         self.registry.register_command('list', self.cmd_list, 'List all tasks', 'tasks')
         self.registry.register_command('complete', self.cmd_complete, 'Mark task as completed', 'tasks')
@@ -449,7 +666,15 @@ class TaskManager:
         self.registry.register_command('folder', self.cmd_folder, 'Manage folders (use -a to add, -d to delete)', 'folders')
 
     def cmd_add(self, *args):
-        """Command to add a task with optional deadline, description, and priority."""
+        """Command to add a task with optional deadline, description, and priority.
+        
+        Parses command-line arguments to create a new task. Supports flags:
+        -dl/--deadline, -desc/--description, -p/--priority.
+        
+        Args:
+            *args: Command arguments. First non-flag arguments form the title,
+                followed by optional flags and their values.
+        """
         if not args:
             print("Error: Task title is required.")
             print("Usage: add <title> [-p priority] [-desc description] [-dl deadline]")
@@ -510,7 +735,7 @@ class TaskManager:
                 return
         
         task = self.add_task(title, description=description, deadline=deadline, priority=priority)
-        print(f"✓ Task added: {task['title']} #{task['id']}")
+        # Task add confirmation already printed by add_task()
         if deadline:
             print(f"  Deadline: {deadline}")
         if description:
@@ -519,7 +744,14 @@ class TaskManager:
             print(f"  Priority: {priority}")
 
     def cmd_list(self, *args):
-        """Command to list tasks."""
+        """Command to list tasks.
+        
+        Displays all tasks in the current folder in a formatted table.
+        Shows AI summaries when available, completed tasks in separate section.
+        
+        Args:
+            *args: Unused command arguments.
+        """
         tasks = self.list_tasks()
         if not tasks:
             print("No tasks available.")
@@ -529,13 +761,12 @@ class TaskManager:
         completed_tasks = [t for t in tasks if t['status'] == 'completed']
         pending_tasks = [t for t in tasks if t['status'] != 'completed']
 
-        # Format tasks for display
-        table = []
-        for t in pending_tasks + completed_tasks:  # Completed tasks at the bottom
-            status = "✓ completed" if t['status'] == "completed" else t['status']
-            
-            # Show actual title in Title column
+        # Helper function to format task row
+        def format_task_row(t):
+            # Show actual title in Title column (truncate if needed)
             title = t['title']
+            if len(title) > 25:
+                title = title[:22] + "..."
             
             # Determine what to show in Description column
             summary = t.get('summary')
@@ -544,33 +775,49 @@ class TaskManager:
             # If task has AI summary, show it in Description column
             if summary:
                 display_desc = summary
-                if len(display_desc) > 40:
-                    display_desc = display_desc[:37] + "..."
+                if len(display_desc) > 35:
+                    display_desc = display_desc[:32] + "..."
             # Else if description exists, show truncated version
             elif description:
-                if len(description) > 40:
-                    display_desc = description[:37] + "..."
+                if len(description) > 35:
+                    display_desc = description[:32] + "..."
                 else:
                     display_desc = description
             else:
                 display_desc = "-"
             
-            table.append([t['id'], title, display_desc, t['deadline'] or "-", t['priority'], status])
+            return [t['id'], title, display_desc, t['deadline'] or "-", t['priority']]
 
-        # Print headers
-        headers = ["ID", "Title", "Description", "Deadline", "Priority", "Status"]
+        # Print pending tasks
+        if pending_tasks:
+            print(f"\n{'ID':<4} {'Title':<26} {'Description':<36} {'Deadline':<12} {'Priority':<10}")
+            print("─" * 4 + " " + "─" * 26 + " " + "─" * 36 + " " + "─" * 12 + " " + "─" * 10)
+            
+            for t in pending_tasks:
+                row = format_task_row(t)
+                print(f"{row[0]:<4} {row[1]:<26} {row[2]:<36} {row[3]:<12} {row[4]:<10}")
         
-        # Add separator row after headers
-        if table:
-            # Create separator row with dashes matching column widths
-            separator = ["─" * 2, "─" * 20, "─" * 40, "─" * 10, "─" * 8, "─" * 10]
-            table.insert(0, separator)
+        # Print completed tasks section
+        if completed_tasks:
+            print(f"\n{'Completed Tasks':<90}")
+            print("─" * 90)
+            print(f"{'ID':<4} {'Title':<26} {'Description':<36} {'Deadline':<12} {'Priority':<10}")
+            print("─" * 4 + " " + "─" * 26 + " " + "─" * 36 + " " + "─" * 12 + " " + "─" * 10)
+            
+            for t in completed_tasks:
+                row = format_task_row(t)
+                print(f"{row[0]:<4} {row[1]:<26} {row[2]:<36} {row[3]:<12} {row[4]:<10}")
         
-        # Print table without borders
-        print(tabulate(table, headers=headers, tablefmt="plain"))
+        print()
 
     def cmd_complete(self, *args):
-        """Command to complete a task."""
+        """Command to complete a task.
+        
+        Marks one or more tasks as completed by their IDs.
+        
+        Args:
+            *args: One or more task IDs (full or partial) to complete.
+        """
         if not args:
             print("Error: Task ID is required.")
             return
@@ -579,14 +826,20 @@ class TaskManager:
                 task = self.get_task(task_id)
                 if task:
                     self.complete_task(task_id)
-                    print(f"✓ Task completed: {task['title']}")
+                    print(format_success(f"Task completed: {task['title']}"))
                 else:
                     print(f"Error: Task with ID {task_id} not found.")
             except ValueError as e:
                 print(e)
 
     def cmd_remove(self, *args):
-        """Command to remove a task."""
+        """Command to remove a task.
+        
+        Deletes one or more tasks by their IDs with confirmation.
+        
+        Args:
+            *args: One or more task IDs (full or partial) to remove.
+        """
         if not args:
             print("Error: Task ID is required.")
             return
@@ -594,15 +847,22 @@ class TaskManager:
             try:
                 task = self.get_task(task_id)
                 if task:
+                    task_title = task['title']
                     self.remove_task(task_id)
-                    print(f"✓ Task removed: {task['title']}")
+                    print(format_success(f"Task removed: {task_title}"))
                 else:
                     print(f"Error: Task with ID {task_id} not found.")
             except ValueError as e:
                 print(e)
 
     def cmd_edit(self, *args):
-        """Command to edit a task."""
+        """Command to edit a task.
+        
+        Modifies task fields using flags: --description, --deadline, --priority.
+        
+        Args:
+            *args: First argument is task ID, followed by flag-value pairs.
+        """
         if not args:
             print("Error: Task ID is required.")
             return
@@ -662,7 +922,13 @@ class TaskManager:
             print(f"Error: {e}")
 
     def cmd_view(self, *args):
-        """Command to view task details."""
+        """Command to view task details.
+        
+        Displays all fields of a task in formatted output.
+        
+        Args:
+            *args: Task ID (full or partial) to view.
+        """
         if not args:
             print("Error: Task ID is required.")
             return
@@ -687,35 +953,56 @@ class TaskManager:
             print(f"No tasks found matching '{query}'.")
             return
         
+        # Separate completed from pending
+        completed_results = [t for t in results if t['status'] == 'completed']
+        pending_results = [t for t in results if t['status'] != 'completed']
+        
         print(f"Found {len(results)} task(s):")
-        table = []
-        for t in results:
-            status = "✓ completed" if t['status'] == "completed" else t['status']
-            
-            # Show actual title in Title column
+        
+        # Helper function to format task row
+        def format_task_row(t):
             title = t['title']
+            if len(title) > 25:
+                title = title[:22] + "..."
             
-            # Determine what to show in Description column
             summary = t.get('summary')
             description = t.get('description', '') or ''
             
-            # If task has AI summary, show it in Description column
             if summary:
                 display_desc = summary
-                if len(display_desc) > 40:
-                    display_desc = display_desc[:37] + "..."
-            # Else if description exists, show truncated version
+                if len(display_desc) > 35:
+                    display_desc = display_desc[:32] + "..."
             elif description:
-                if len(description) > 40:
-                    display_desc = description[:37] + "..."
+                if len(description) > 35:
+                    display_desc = description[:32] + "..."
                 else:
                     display_desc = description
             else:
                 display_desc = "-"
             
-            table.append([t['id'], title, display_desc, t['deadline'] or "-", t['priority'], status])
+            return [t['id'], title, display_desc, t['deadline'] or "-", t['priority']]
         
-        print(tabulate(table, headers=["ID", "Title", "Description", "Deadline", "Priority", "Status"], tablefmt="plain"))
+        # Print pending tasks
+        if pending_results:
+            print(f"\n{'ID':<4} {'Title':<26} {'Description':<36} {'Deadline':<12} {'Priority':<10}")
+            print("─" * 4 + " " + "─" * 26 + " " + "─" * 36 + " " + "─" * 12 + " " + "─" * 10)
+            
+            for t in pending_results:
+                row = format_task_row(t)
+                print(f"{row[0]:<4} {row[1]:<26} {row[2]:<36} {row[3]:<12} {row[4]:<10}")
+        
+        # Print completed tasks
+        if completed_results:
+            print(f"\n{'Completed Tasks':<90}")
+            print("─" * 90)
+            print(f"{'ID':<4} {'Title':<26} {'Description':<36} {'Deadline':<12} {'Priority':<10}")
+            print("─" * 4 + " " + "─" * 26 + " " + "─" * 36 + " " + "─" * 12 + " " + "─" * 10)
+            
+            for t in completed_results:
+                row = format_task_row(t)
+                print(f"{row[0]:<4} {row[1]:<26} {row[2]:<36} {row[3]:<12} {row[4]:<10}")
+        
+        print()
 
     def cmd_folders(self, *args):
         """Command to list all folders with task counts."""

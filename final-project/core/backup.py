@@ -33,17 +33,22 @@ class BackupManager:
         self.export_dir.mkdir(exist_ok=True)
     
     def create_backup(self, auto=False):
-        """
-        Create a backup ZIP of all data.
+        """Create a backup ZIP of all data.
+        
+        Creates a timestamped ZIP archive containing all tasks, documents,
+        settings, and metadata. Includes a README file describing the backup.
         
         Args:
-            auto: Whether this is an automatic backup
+            auto (bool): Whether this is an automatic backup. If True, the backup
+                filename is prefixed with 'auto_backup', otherwise 'backup'.
+                Defaults to False.
             
         Returns:
-            Path to created backup file
+            Path: Path object pointing to the created backup ZIP file.
             
         Raises:
-            StorageError: If backup creation fails
+            StorageError: If backup creation fails due to I/O errors or
+                insufficient permissions.
         """
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         prefix = "auto_backup" if auto else "backup"
@@ -87,11 +92,17 @@ class BackupManager:
             )
     
     def list_backups(self):
-        """
-        List all backup files with metadata.
+        """List all backup files with metadata.
+        
+        Scans the backup directory and returns information about each backup
+        file sorted by creation time (newest first).
         
         Returns:
-            List of tuples (filename, size_mb, created_date, is_auto)
+            list[tuple]: List of tuples, each containing:
+                - filename (str): Name of the backup file
+                - size_mb (float): File size in megabytes
+                - created_date (datetime): Creation timestamp
+                - is_auto (bool): True if this is an automatic backup
         """
         backups = []
         
@@ -110,15 +121,19 @@ class BackupManager:
         return backups
     
     def restore_backup(self, backup_file):
-        """
-        Restore from a backup ZIP file.
+        """Restore from a backup ZIP file.
+        
+        Extracts and restores all data from a backup ZIP file, replacing
+        current data. Creates a temporary directory for extraction to ensure
+        atomicity.
         
         Args:
-            backup_file: Name of backup file or full path
+            backup_file (str or Path): Name of backup file (searched in backup
+                directory) or full path to backup ZIP file.
             
         Raises:
-            InvalidInputError: If backup file not found
-            StorageError: If restore fails
+            InvalidInputError: If the backup file is not found or has invalid format.
+            StorageError: If restore fails due to extraction or file operation errors.
         """
         # Find backup file
         if isinstance(backup_file, str):
@@ -172,12 +187,17 @@ class BackupManager:
             )
     
     def auto_backup(self):
-        """
-        Create automatic backup if last backup is older than 24 hours.
-        Only keeps the most recent auto-backup, deletes older ones.
+        """Create automatic backup if last backup is older than 24 hours.
+        
+        Checks the timestamp of the most recent automatic backup and creates
+        a new one if more than 24 hours have passed. Automatically cleans up
+        old automatic backups to save space.
         
         Returns:
-            Tuple (created, backup_path or None)
+            tuple: A tuple containing:
+                - created (bool): True if a new backup was created, False otherwise
+                - backup_path (Path or None): Path to the created backup file,
+                    or None if no backup was created
         """
         # Check when last auto-backup was created
         auto_backups = [
@@ -211,12 +231,16 @@ class BackupManager:
             return False, None
     
     def cleanup_old_backups(self, keep_count=7, manual_keep_count=None):
-        """
-        Delete old backups, keeping the most recent ones.
+        """Delete old backups, keeping the most recent ones.
+        
+        Removes old backup files to manage storage space. Separately handles
+        automatic and manual backups with different retention policies.
         
         Args:
-            keep_count: Number of auto-backups to keep
-            manual_keep_count: Number of manual backups to keep (None = keep all)
+            keep_count (int): Number of automatic backups to retain. Older
+                auto-backups are deleted. Defaults to 7.
+            manual_keep_count (int, optional): Number of manual backups to retain.
+                If None, all manual backups are kept. Defaults to None.
         """
         # Get all backups
         auto_backups = []
@@ -249,14 +273,18 @@ class BackupManager:
                     pass
     
     def export_data(self):
-        """
-        Create full export ZIP with all data and metadata.
+        """Create full export ZIP with all data and metadata.
+        
+        Creates a comprehensive export package including all application data,
+        export metadata, and documentation. Suitable for data migration or
+        external analysis.
         
         Returns:
-            Path to export file
+            Path: Path object pointing to the created export ZIP file.
             
         Raises:
-            StorageError: If export fails
+            StorageError: If export fails due to I/O errors or insufficient
+                permissions.
         """
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         export_filename = f"pkms_export_{timestamp}.zip"
@@ -303,19 +331,26 @@ class BackupManager:
             )
     
     def import_data(self, import_file, mode='merge'):
-        """
-        Import data from export ZIP file.
+        """Import data from export ZIP file.
+        
+        Imports data from an export ZIP file using either merge or replace mode.
+        In merge mode, combines imported data with existing data. In replace mode,
+        creates a backup and then replaces all existing data.
         
         Args:
-            import_file: Path to import ZIP file
-            mode: 'merge' or 'replace'
+            import_file (str or Path): Path to the import ZIP file.
+            mode (str): Import mode - either 'merge' to combine with existing data
+                or 'replace' to replace all data. Defaults to 'merge'.
             
         Returns:
-            Dictionary with import statistics
+            dict: Dictionary containing import statistics with keys:
+                - tasks (int): Number of tasks imported
+                - documents (int): Number of documents imported
+                - settings (bool): Whether settings were imported
             
         Raises:
-            InvalidInputError: If import file invalid
-            StorageError: If import fails
+            InvalidInputError: If the import file is not found or has invalid format.
+            StorageError: If import fails due to extraction or file operation errors.
         """
         import_path = Path(import_file)
         if not import_path.exists():
@@ -404,7 +439,17 @@ class BackupManager:
             )
     
     def _merge_tasks(self, import_tasks_file):
-        """Merge imported tasks with existing tasks."""
+        """Merge imported tasks with existing tasks.
+        
+        Combines tasks from import file with existing tasks, avoiding duplicates
+        based on task IDs. Preserves folder structure from both sources.
+        
+        Args:
+            import_tasks_file (Path): Path to the imported tasks.json file.
+        
+        Returns:
+            int: Number of tasks successfully imported (excluding duplicates).
+        """
         current_tasks_file = self.data_dir / 'tasks.json'
         
         # Load imported tasks
@@ -438,7 +483,18 @@ class BackupManager:
         return imported_count
     
     def _merge_documents(self, import_docs_file, import_data_dir):
-        """Merge imported documents with existing documents."""
+        """Merge imported documents with existing documents.
+        
+        Combines documents from import with existing documents, avoiding duplicates
+        based on document IDs. Copies document files to the appropriate directories.
+        
+        Args:
+            import_docs_file (Path): Path to the imported docs_metadata.json file.
+            import_data_dir (Path): Path to the root directory of imported data.
+        
+        Returns:
+            int: Number of documents successfully imported (excluding duplicates).
+        """
         current_docs_file = self.data_dir / 'docs_metadata.json'
         
         # Load imported docs metadata
@@ -478,7 +534,14 @@ class BackupManager:
         return imported_count
     
     def _generate_backup_readme(self):
-        """Generate README content for backup."""
+        """Generate README content for backup.
+        
+        Creates user-friendly documentation describing the backup contents
+        and restoration instructions.
+        
+        Returns:
+            str: Formatted README text for inclusion in backup ZIP.
+        """
         return f"""PKMS Backup Archive
 ==================
 
@@ -504,7 +567,14 @@ current data before restoring if you want to keep it.
 """
     
     def _generate_export_readme(self):
-        """Generate README content for export."""
+        """Generate README content for export.
+        
+        Creates user-friendly documentation describing the export contents,
+        format, and import instructions.
+        
+        Returns:
+            str: Formatted README text for inclusion in export ZIP.
+        """
         return f"""PKMS Data Export
 ===============
 
@@ -536,7 +606,15 @@ For questions or issues, refer to the PKMS documentation.
 """
     
     def _generate_export_metadata(self):
-        """Generate metadata for export."""
+        """Generate metadata for export.
+        
+        Creates a JSON-serializable metadata dictionary containing export
+        information including counts, version, and timestamp.
+        
+        Returns:
+            dict: Export metadata dictionary with format version, export date,
+                PKMS version, and content statistics.
+        """
         # Count items
         tasks_count = 0
         docs_count = 0
@@ -568,11 +646,18 @@ For questions or issues, refer to the PKMS documentation.
         }
     
     def get_storage_stats(self):
-        """
-        Calculate storage statistics.
+        """Calculate storage statistics.
+        
+        Analyzes storage usage across all data categories including JSON files,
+        documents, cache, and backups.
         
         Returns:
-            Dictionary with storage information
+            dict: Dictionary containing storage statistics with keys:
+                - total_mb (float): Total data size excluding backups
+                - json_mb (float): Size of JSON metadata files
+                - docs_mb (float): Size of document files
+                - cache_mb (float): Size of cached data
+                - backups_mb (float): Size of backup files
         """
         stats = {
             'total_mb': 0,

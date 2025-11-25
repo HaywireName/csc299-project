@@ -5,13 +5,33 @@ from openai import OpenAI
 
 
 class AgentManager:
+    """Manages AI-powered agent features for task analysis and knowledge synthesis.
+    
+    The AgentManager provides intelligent analysis capabilities including task
+    analysis with complexity estimates and priority suggestions, cross-workspace
+    knowledge synthesis, and connection mapping between tasks and documents.
+    Uses OpenAI's GPT-4o for advanced reasoning and insights.
+    
+    Attributes:
+        data_manager: Data persistence manager.
+        task_manager: TaskManager instance for accessing task data.
+        document_manager: DocumentManager instance for accessing documents (optional).
+        registry: Command registry for registering agent commands.
+        openai_client: OpenAI API client instance.
+    """
+    
     def __init__(self, data_manager, task_manager, registry, document_manager=None):
-        """
-        Initialize AgentManager with dependencies.
-        :param data_manager: Handles data storage and retrieval.
-        :param task_manager: TaskManager instance for task operations.
-        :param registry: Command registry for registering commands.
-        :param document_manager: DocumentManager instance for document operations (optional).
+        """Initialize AgentManager with dependencies.
+        
+        Sets up agent features with access to task and document managers,
+        initializes OpenAI client, and registers agent commands.
+        
+        Args:
+            data_manager: Data persistence manager instance.
+            task_manager: TaskManager instance for task operations.
+            registry: Command registry instance for registering commands.
+            document_manager: DocumentManager instance for document operations.
+                Defaults to None (document features will be limited).
         """
         self.data_manager = data_manager
         self.task_manager = task_manager
@@ -22,7 +42,12 @@ class AgentManager:
         self._register_commands()
 
     def _init_openai_client(self):
-        """Initialize OpenAI client with API key from environment."""
+        """Initialize OpenAI client with API key from environment.
+        
+        Attempts to create an OpenAI client using the API key from the
+        OPENAI_API_KEY environment variable. Agent functionality will be
+        disabled if the key is not found.
+        """
         try:
             api_key = os.environ.get('OPENAI_API_KEY')
             if api_key:
@@ -33,10 +58,17 @@ class AgentManager:
             print(f"Warning: Failed to initialize OpenAI client: {e}")
 
     def _parse_date(self, date_str):
-        """
-        Parse date string to datetime object.
-        :param date_str: Date string in various formats
-        :return: datetime object or None
+        """Parse date string to datetime object.
+        
+        Attempts to parse date strings in various common formats including
+        MM-DD-YYYY, YYYY-MM-DD, MM/DD/YYYY, MM/DD (current year), and others.
+        
+        Args:
+            date_str: Date string in various supported formats.
+        
+        Returns:
+            datetime: Parsed datetime object, or None if parsing fails or
+                input is empty.
         """
         if not date_str:
             return None
@@ -76,10 +108,22 @@ class AgentManager:
         return None
 
     def _categorize_tasks(self, tasks):
-        """
-        Categorize tasks by urgency and status.
-        :param tasks: List of task dictionaries
-        :return: Dictionary with categorized tasks
+        """Categorize tasks by urgency and status.
+        
+        Groups tasks into categories: overdue, due soon (within 3 days),
+        no deadline, high priority pending, and all tasks. Used for
+        generating analysis insights.
+        
+        Args:
+            tasks: List of task dictionaries.
+        
+        Returns:
+            dict: Dictionary with category keys mapping to lists of tasks:
+                - overdue: Past deadline, not completed.
+                - due_soon: Deadline within next 3 days, not completed.
+                - no_deadline: Tasks without deadlines.
+                - high_priority_pending: High priority tasks that are pending.
+                - all_tasks: Complete list of all tasks.
         """
         now = datetime.now()
         today = now.date()
@@ -125,11 +169,21 @@ class AgentManager:
         return categories
 
     def _call_openai_analysis(self, tasks_data, categories):
-        """
-        Send tasks to OpenAI for AI-powered analysis.
-        :param tasks_data: List of task dictionaries
-        :param categories: Pre-categorized tasks
-        :return: Analysis response from OpenAI
+        """Send tasks to OpenAI for AI-powered analysis.
+        
+        Sends task data to GPT-4o for comprehensive analysis including
+        complexity estimates, priority suggestions, related task identification,
+        deadline recommendations, and general insights. Returns structured
+        JSON response.
+        
+        Args:
+            tasks_data: List of task dictionaries with metadata.
+            categories: Pre-categorized tasks for context.
+        
+        Returns:
+            dict: Parsed JSON analysis containing complexity_estimates,
+                priority_suggestions, related_tasks, deadline_suggestions,
+                and insights. Returns None if analysis fails.
         """
         if not self.openai_client:
             return None
@@ -201,12 +255,20 @@ Provide analysis in the specified JSON format."""
             return None
 
     def _format_analysis_report(self, categories, ai_analysis, folder_name):
-        """
-        Format analysis results as readable report.
-        :param categories: Categorized tasks
-        :param ai_analysis: AI analysis results
-        :param folder_name: Name of the analyzed folder
-        :return: Formatted report string
+        """Format analysis results as readable report.
+        
+        Creates a comprehensive formatted report with categorized tasks
+        (overdue, due soon, no deadline, high priority) and AI-generated
+        insights including complexity estimates, priority suggestions,
+        related tasks, and deadline recommendations.
+        
+        Args:
+            categories: Dictionary of categorized tasks.
+            ai_analysis: AI analysis results from OpenAI.
+            folder_name: Name of the analyzed folder.
+        
+        Returns:
+            str: Multi-line formatted report string with sections and visual separators.
         """
         lines = []
         lines.append("\n" + "=" * 50)
@@ -329,10 +391,18 @@ Provide analysis in the specified JSON format."""
         return "\n".join(lines)
 
     def _apply_suggestions_interactive(self, ai_analysis):
-        """
-        Walk through AI suggestions and apply them interactively.
-        :param ai_analysis: AI analysis with suggestions
-        :return: Number of applied suggestions
+        """Walk through AI suggestions and apply them interactively.
+        
+        Presents each priority and deadline suggestion to the user one by one,
+        allowing them to accept, reject, or skip each suggestion. Applies
+        accepted suggestions immediately via the task manager.
+        
+        Args:
+            ai_analysis: AI analysis results containing suggestions.
+        
+        Returns:
+            tuple: (applied_count (int), total_suggestions (int)) indicating
+                how many suggestions were applied and total presented.
         """
         if not ai_analysis:
             return 0
@@ -396,10 +466,20 @@ Provide analysis in the specified JSON format."""
         return applied_count, total_suggestions
 
     def analyze_tasks(self, folder_name=None):
-        """
-        Analyze tasks in a folder with AI assistance.
-        :param folder_name: Folder to analyze (None for current folder)
-        :return: Analysis report
+        """Analyze tasks in a folder with AI assistance.
+        
+        Performs comprehensive AI-powered analysis of tasks including urgency
+        categorization, complexity estimation, priority recommendations, and
+        related task identification. Optionally allows interactive application
+        of AI suggestions.
+        
+        Args:
+            folder_name: Folder to analyze. Uses current folder if None.
+                Defaults to None.
+        
+        Returns:
+            str: Formatted analysis report, or None if analysis fails or
+                folder has no tasks.
         """
         if not self.openai_client:
             print("Error: AI analysis requires OpenAI API key.")
@@ -449,10 +529,19 @@ Provide analysis in the specified JSON format."""
         return report
 
     def _find_relevant_pdfs(self, topic):
-        """
-        Search PDF text and summaries for topic.
-        :param topic: Topic to search for
-        :return: List of relevant PDFs with context
+        """Search document text and summaries for topic.
+        
+        Searches through document titles, summaries, and cached full text
+        for relevance to the given topic. Calculates relevance scores and
+        extracts context snippets around matches.
+        
+        Args:
+            topic: Topic string to search for.
+        
+        Returns:
+            list: List of relevant document dictionaries with relevance_score
+                and context_snippets, sorted by relevance (highest first).
+                Empty list if no documents match or document_manager unavailable.
         """
         if not self.document_manager:
             return []
@@ -526,10 +615,18 @@ Provide analysis in the specified JSON format."""
         return relevant_docs
 
     def _find_relevant_tasks(self, topic):
-        """
-        Search task titles and descriptions for topic.
-        :param topic: Topic to search for
-        :return: List of relevant tasks with context
+        """Search task titles and descriptions for topic.
+        
+        Searches through all tasks across all folders for relevance to the
+        given topic. Calculates relevance scores and extracts context snippets
+        around matches in titles and descriptions.
+        
+        Args:
+            topic: Topic string to search for.
+        
+        Returns:
+            list: List of relevant task dictionaries with relevance_score,
+                folder, and context_snippets, sorted by relevance (highest first).
         """
         tasks_data = self.data_manager.load("tasks.json")
         if not tasks_data or 'folders' not in tasks_data:
@@ -583,12 +680,20 @@ Provide analysis in the specified JSON format."""
         return relevant_tasks
 
     def _call_synthesis(self, topic, pdfs, tasks):
-        """
-        Send to OpenAI for knowledge synthesis.
-        :param topic: Topic to synthesize
-        :param pdfs: Relevant PDFs
-        :param tasks: Relevant tasks
-        :return: Synthesis response
+        """Send to OpenAI for knowledge synthesis.
+        
+        Sends relevant documents and tasks to GPT-4o for comprehensive
+        knowledge synthesis about the topic. AI integrates information
+        from multiple sources and provides actionable insights.
+        
+        Args:
+            topic: Topic to synthesize information about.
+            pdfs: List of relevant document dictionaries.
+            tasks: List of relevant task dictionaries.
+        
+        Returns:
+            str: AI-generated synthesis with overview, key points, and
+                actionable insights. Returns None if synthesis fails.
         """
         if not self.openai_client:
             return None
@@ -647,10 +752,20 @@ Structure your response as:
             return None
 
     def synthesize_topic(self, topic):
-        """
-        Search PDFs and tasks for topic and synthesize with AI.
-        :param topic: Topic to synthesize
-        :return: Formatted synthesis
+        """Search documents and tasks for topic and synthesize with AI.
+        
+        Performs comprehensive knowledge synthesis by:
+        1. Searching all documents and tasks for relevant content
+        2. Sending relevant sources to AI for synthesis
+        3. Formatting results with source citations and related information
+        
+        Args:
+            topic: Topic to synthesize information about.
+        
+        Returns:
+            str: Formatted synthesis report with sources, synthesis text,
+                and related information. Returns None if no relevant sources
+                found or synthesis fails.
         """
         if not self.openai_client:
             print("Error: Synthesis requires OpenAI API key.")
@@ -718,9 +833,15 @@ Structure your response as:
         return output
 
     def show_connections(self):
-        """
-        Display connections between PDFs and tasks.
-        :return: Formatted connections
+        """Display connections between documents and tasks.
+        
+        Analyzes the workspace to find connections between documents and tasks
+        by detecting mentions, references, and shared context. Shows how
+        knowledge is interconnected across the workspace.
+        
+        Returns:
+            str: Formatted connections report showing links between documents
+                and tasks with statistics.
         """
         print("Analyzing knowledge connections...\n")
         
@@ -844,7 +965,11 @@ Structure your response as:
         return output
 
     def _register_commands(self):
-        """Register agent-related commands."""
+        """Register agent-related commands.
+        
+        Registers AI agent commands (analyze-tasks, synthesize, connections)
+        with the command registry.
+        """
         self.registry.register_command('analyze-tasks', self.cmd_analyze_tasks, 
                                       'Analyze tasks with AI insights', 'agent')
         self.registry.register_command('synthesize', self.cmd_synthesize,
@@ -853,9 +978,12 @@ Structure your response as:
                                       'Show connections between documents and tasks', 'agent')
 
     def cmd_analyze_tasks(self, *args):
-        """
-        Command to analyze tasks in a folder.
-        Accepts --folder flag to specify folder.
+        """Command to analyze tasks in a folder.
+        
+        Runs AI-powered task analysis on the specified folder or current folder.
+        
+        Args:
+            *args: Command arguments. Use '--folder <name>' to specify folder.
         """
         folder_name = None
         
@@ -875,9 +1003,12 @@ Structure your response as:
         self.analyze_tasks(folder_name)
 
     def cmd_synthesize(self, *args):
-        """
-        Command to synthesize knowledge about a topic.
-        Usage: synthesize <topic>
+        """Command to synthesize knowledge about a topic.
+        
+        Searches workspace for relevant information and generates AI synthesis.
+        
+        Args:
+            *args: Topic words to search for (joined into single topic string).
         """
         if not args:
             print("Usage: synthesize <topic>")
@@ -889,7 +1020,11 @@ Structure your response as:
         self.synthesize_topic(topic)
 
     def cmd_connections(self, *args):
-        """
-        Command to show connections between documents and tasks.
+        """Command to show connections between documents and tasks.
+        
+        Displays a report of all detected connections in the workspace.
+        
+        Args:
+            *args: Unused command arguments.
         """
         self.show_connections()

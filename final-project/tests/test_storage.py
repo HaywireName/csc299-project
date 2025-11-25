@@ -107,7 +107,7 @@ class TestDataManager:
         dm = DataManager(temp_data_dir)
         
         assert dm.tasks_file.exists()
-        assert dm.pdf_metadata_file.exists()
+        assert dm.docs_metadata_file.exists()
         assert dm.chat_history_file.exists()
     
     def test_initialization_creates_default_structure(self, temp_data_dir):
@@ -119,8 +119,9 @@ class TestDataManager:
         assert "default" in tasks_data["folders"]
         assert "current_folder" in tasks_data
         
-        pdf_data = JSONStorage.load(dm.pdf_metadata_file)
-        assert "documents" in pdf_data
+        docs_data = JSONStorage.load(dm.docs_metadata_file)
+        # Should be an empty array by default
+        assert isinstance(docs_data, list)
         
         chat_data = JSONStorage.load(dm.chat_history_file)
         assert "conversations" in chat_data

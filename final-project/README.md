@@ -1,110 +1,356 @@
 # PKMS Task Manager
 
-A terminal-based Personal Knowledge Management System and Task Manager with AI capabilities.
+A powerful, terminal-based Personal Knowledge Management System (PKMS) with integrated task management, document library, and AI-powered features.
 
-## 🔑 Prerequisites
+![Python Version](https://img.shields.io/badge/python-3.9%2B-blue)
+![License](https://img.shields.io/badge/license-MIT-green)
 
-- Python 3.9 or higher
-- OpenAI API key (get one at https://platform.openai.com/api-keys)
+## 🌟 Features
 
-## 📦 Installation
+### 📋 Task Management
+- **Smart Task Organization**: Create, edit, and track tasks with priorities, deadlines, and descriptions
+- **Folder System**: Organize tasks into custom folders for projects or categories
+- **Flexible Deadlines**: Support for multiple date formats (DD-MM-YYYY, MM/DD/YYYY, "tomorrow", etc.)
+- **AI Summarization**: Automatically generate concise summaries for lengthy task descriptions (20+ words)
+- **Status Tracking**: Monitor pending, completed, and overdue tasks
 
-1. Clone or download this repository
+### 📄 Document Library
+- **Multi-Format Support**: Manage PDF, DOCX, and TXT documents in one place
+- **Auto-Metadata Extraction**: Automatically extract titles, page counts, and previews
+- **Text Extraction**: Extract full or partial text with intelligent caching
+- **AI-Powered Summaries**: Generate document summaries using GPT-4o-mini
+- **Full-Text Search**: Search across all documents with context highlighting
+- **Smart Organization**: Recently accessed documents appear first
 
-2. **Set up a virtual environment (recommended):**
-   ```bash
-   python3 -m venv venv
-   ```
+### 💬 AI Chat Assistant
+- **Conversational Interface**: Natural language interaction with GPT-4o
+- **Context-Aware**: Load context from tasks, documents, or both
+- **Session Management**: Persistent conversation history
+- **Cost Tracking**: Monitor API usage and costs in real-time
+- **Streaming Responses**: See AI responses as they're generated
 
-   Activate the virtual environment:
-   - **macOS/Linux:**
-     ```bash
-     source venv/bin/activate
-     ```
-   - **Windows (Command Prompt):**
-     ```cmd
-     venv\Scripts\activate
-     ```
-   - **Windows (PowerShell):**
-     ```powershell
-     .\venv\Scripts\Activate.ps1
-     ```
+### 🤖 AI Agent System
+- **Task Analysis**: Intelligent insights and recommendations for task management
+- **Document Synthesis**: Combine information from multiple documents
+- **Contextual Intelligence**: Agents understand your entire knowledge base
 
-3. Install dependencies:
-   ```bash
-   pip install -r requirements.txt
-   ```
+### 💾 Data Management
+- **Automatic Backups**: Auto-backup on program start
+- **Export/Import**: Full data portability with ZIP archives
+- **Manual Backups**: Create backups anytime
+- **Easy Restoration**: Restore from any backup with confirmation
 
-4. **Set up your API key as an environment variable**
-      
-   Quick setup:
-   
-   **macOS/Linux:**
-```bash
-   export OPENAI_API_KEY='sk-your-key-here'
-```
-   
-   **Windows (PowerShell):**
-```powershell
-   $env:OPENAI_API_KEY="sk-your-key-here"
-```
+## 📋 Requirements
 
-5. Run the program:
-```bash
-   python main.py
-```
+- **Python**: 3.9 or higher
+- **OpenAI API Key**: Required for AI features (chat, summaries, agents)
+- **Operating System**: macOS, Linux, or Windows
+- **Dependencies**: See `requirements.txt`
 
-   See `setup_instructions.txt` for detailed instructions for your OS.
+## 🚀 Quick Start
 
-## 🔐 Security
+### Installation
 
-This project uses system environment variables for API keys - NO files contain secrets!
-
-✅ API key is stored in your system, not in project files
-✅ API key is never committed to Git
-✅ Safe to share entire project folder
-
-## ⚙️ Configuration
-
-The program reads the OpenAI API key from the `OPENAI_API_KEY` environment variable.
-
-To verify your key is set correctly:
+#### Option 1: Automated Installation (Recommended)
 
 **macOS/Linux:**
 ```bash
-echo $OPENAI_API_KEY
+git clone https://github.com/HaywireName/csc299-project.git
+cd csc299-project/final-project
+chmod +x install.sh
+./install.sh
 ```
 
 **Windows:**
 ```cmd
-echo %OPENAI_API_KEY%
+git clone https://github.com/HaywireName/csc299-project.git
+cd csc299-project\final-project
+install.bat
 ```
 
-## 🚀 First Run
+**Create a virtual environment:**
+   ```bash
+   python3 -m venv venv
+   
+   # Activate it:
+   # macOS/Linux:
+   source venv/bin/activate
+   
+   # Windows:
+   venv\Scripts\activate
 
-When you run the program for the first time:
+**Run the program:**
+   ```bash
+   python main.py
+   ```
+
+#### Option 2: Manual Installation
+
+1. **Clone the repository:**
+   ```bash
+   git clone https://github.com/HaywireName/csc299-project.git
+   cd csc299-project/final-project
+   ```
+
+2. **Create a virtual environment:**
+   ```bash
+   python3 -m venv venv
+   
+   # Activate it:
+   # macOS/Linux:
+   source venv/bin/activate
+   
+   # Windows:
+   venv\Scripts\activate
+   ```
+
+3. **Install dependencies:**
+   ```bash
+   pip install -r requirements.txt
+   ```
+
+4. **Set up your OpenAI API key:**
+   ```bash
+   # macOS/Linux:
+   export OPENAI_API_KEY='sk-your-key-here'
+   
+   # Windows PowerShell:
+   $env:OPENAI_API_KEY="sk-your-key-here"
+   
+   # Windows CMD:
+   set OPENAI_API_KEY=sk-your-key-here
+   ```
+   
+   For permanent setup, add to `.env` file or your shell profile.
+
+5. **Run the application:**
+   ```bash
+   python main.py
+   ```
+
+## 📖 Usage Examples
+
+### Task Management
+
 ```bash
-python main.py
+# Enter tasks module
+pkms> tasks
+
+# Add a task with deadline and priority
+tasks[default]> add "Write project report" -p high -dl 2025-12-01
+
+# Add a task with description
+tasks[default]> add "Research AI tools" -desc "Look into GPT-4 alternatives and compare pricing"
+
+# List all tasks
+tasks[default]> list
+
+# Create and switch folders
+tasks[default]> folder -a work
+tasks[default]> folder work
+
+# View task details
+tasks[work]> view 1
+
+# Mark task complete
+tasks[work]> complete 1
+
+# Search tasks
+tasks[work]> search report
 ```
 
-If the API key is not found, you'll see clear instructions on how to set it up.
+### Document Management
 
-## 📖 Commands
+```bash
+# Enter docs module
+pkms> docs
 
-Type `help` in the program to see all available commands.
+# Add a document
+docs> add ~/Documents/research-paper.pdf
+
+# List all documents
+docs> list
+
+# View document details
+docs> view 1
+
+# Extract text from document
+docs> extract 1
+
+# Search across all documents
+docs> search "machine learning"
+
+# Generate AI summary
+docs> summarize 1
+```
+
+### AI Chat
+
+```bash
+# Enter chat module
+pkms> chat
+
+# Start chat with task context
+chat> chat --context tasks
+
+# In chat mode:
+chat[tasks]> What tasks are due this week?
+chat[tasks]> Help me prioritize my work
+chat[tasks]> /exit
+```
+
+### Program Commands
+
+```bash
+# View quick statistics
+pkms> stats
+
+# Check current context
+pkms> status
+
+# Create backup
+pkms> backup
+
+# Export all data
+pkms> export
+
+# Get help
+pkms> help
+```
+
+## 📚 Documentation
+
+- **[COMMANDS.md](COMMANDS.md)**: Complete command reference
+- **[USER_GUIDE.md](USER_GUIDE.md)**: Step-by-step tutorials and workflows
+- **[ARCHITECTURE.md](ARCHITECTURE.md)**: Technical documentation and system design
+
+## 🔧 Configuration
+
+### Environment Variables
+
+- `OPENAI_API_KEY`: Your OpenAI API key (required for AI features)
+
+### Data Storage
+
+All data is stored in the `data/` directory:
+- `tasks.json`: Task data organized by folders
+- `docs_metadata.json`: Document metadata and summaries
+- `chat_history.json`: Chat conversation history
+- `settings.json`: Application settings
+- `docs/`: Document files (PDF, DOCX, TXT)
+- `doc_cache/`: Extracted text cache
+- `backups/`: Automatic and manual backups
 
 ## 🐛 Troubleshooting
 
-**"API key not found" error:**
-- Follow the setup instructions in `setup_instructions.txt`
-- Make sure you've set the environment variable in the current terminal
-- On Windows, you may need to restart your terminal after setting a permanent variable
-- Try the temporary setup first to test
+### API Key Issues
 
-**Program works in one terminal but not another:**
-- You need to set the environment variable in each new terminal session
-- Or set it permanently (see `setup_instructions.txt`)
+**Problem**: `OpenAI API Key Not Found`
+
+**Solution**:
+1. Ensure your API key is set correctly:
+   ```bash
+   echo $OPENAI_API_KEY  # macOS/Linux
+   echo %OPENAI_API_KEY%  # Windows CMD
+   ```
+2. Verify the key starts with `sk-`
+3. Remove any quotes from environment variable
+4. Restart your terminal after setting the key
+
+### Import Errors
+
+**Problem**: `ModuleNotFoundError`
+
+**Solution**:
+1. Activate your virtual environment
+2. Reinstall dependencies:
+   ```bash
+   pip install -r requirements.txt
+   ```
+
+### Permission Errors
+
+**Problem**: Cannot write to data directory
+
+**Solution**:
+1. Check directory permissions
+2. Run from your user directory, not system directories
+3. On Unix systems: `chmod -R u+w data/`
+
+### Rate Limits
+
+**Problem**: OpenAI rate limit exceeded
+
+**Solution**:
+1. The program automatically retries with exponential backoff
+2. Wait a few minutes before making more API calls
+3. Check your OpenAI usage limits at platform.openai.com
+
+### Corrupted Data
+
+**Problem**: JSON decode errors
+
+**Solution**:
+1. Restore from backup: `pkms> restore`
+2. Check `data/backups/` for auto-backups
+3. Manually fix JSON files (ensure valid JSON syntax)
+
+## 🧪 Testing
+
+Run the test suite:
+
+```bash
+# Run all tests
+python run_tests.py
+
+# Run specific test file
+python -m pytest tests/test_tasks.py -v
+
+# Run with coverage
+python run_tests.py --coverage
+```
+
+## 🤝 Contributing
+
+This is an academic project. For questions or suggestions, please open an issue on GitHub.
 
 ## 📄 License
 
 MIT License
+
+Copyright (c) 2025 PKMS Task Manager Contributors
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+## 📞 Support
+
+- **Documentation**: See USER_GUIDE.md for detailed instructions
+- **Issues**: Report bugs on GitHub
+- **Questions**: Check ARCHITECTURE.md for technical details
+
+## 🙏 Acknowledgments
+
+- Built with Python and OpenAI GPT-4o
+- Inspired by personal knowledge management systems
+- Developed for CSC299 course project
+
+---
+
+**Version**: 1.0.0  
+**Last Updated**: November 2025

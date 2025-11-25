@@ -13,11 +13,34 @@ from core.utils import confirm_action, format_success, format_error, format_warn
 
 
 class DocumentManager:
+    """Manages document operations including PDF, DOCX, and TXT file handling.
+    
+    The DocumentManager handles document ingestion, text extraction, caching,
+    searching, and AI-powered summarization. Supports PDF, DOCX, and TXT formats
+    with automatic metadata extraction and full-text search capabilities.
+    
+    Attributes:
+        data_manager: Data persistence manager for document metadata.
+        registry: Command registry for registering document commands.
+        data_dir: Base directory for document storage.
+        pdfs_dir: Directory for PDF files.
+        docx_dir: Directory for DOCX files.
+        txt_dir: Directory for TXT files.
+        cache_dir: Directory for cached extracted text.
+        documents: List of document metadata dictionaries.
+        session_cost: Cumulative OpenAI API cost for the session.
+        openai_client: OpenAI API client instance.
+    """
+    
     def __init__(self, data_manager, registry):
-        """
-        Initialize DocumentManager with dependencies.
-        :param data_manager: Handles data storage and retrieval.
-        :param registry: Command registry for registering commands.
+        """Initialize DocumentManager with dependencies.
+        
+        Sets up directory structure for document storage, loads existing
+        document metadata, initializes OpenAI client, and registers commands.
+        
+        Args:
+            data_manager: Data persistence manager instance.
+            registry: Command registry instance for registering commands.
         """
         self.data_manager = data_manager
         self.registry = registry
@@ -40,7 +63,12 @@ class DocumentManager:
         self._register_commands()
 
     def _init_openai_client(self):
-        """Initialize OpenAI client with API key from environment."""
+        """Initialize OpenAI client with API key from environment.
+        
+        Attempts to create an OpenAI client using the API key from the
+        OPENAI_API_KEY environment variable. If the key is not found,
+        AI summarization features will be disabled.
+        """
         try:
             api_key = os.environ.get('OPENAI_API_KEY')
             if api_key:
@@ -51,43 +79,117 @@ class DocumentManager:
             print(f"Warning: Failed to initialize OpenAI client: {e}")
 
     def _load_documents(self):
-        """Load document metadata from storage."""
+        """Load document metadata from storage.
+        
+        Returns:
+            list: List of document metadata dictionaries, or empty list if none exist.
+        """
         docs = self.data_manager.load("docs_metadata.json")
         return docs if docs else []
 
     def _save_documents(self):
-        """Save document metadata to storage."""
+        """Save document metadata to storage.
+        
+        Persists the complete list of document metadata to docs_metadata.json.
+        """
         self.data_manager.save("docs_metadata.json", self.documents)
 
     def _generate_unique_filename(self, original_name):
-        """
-        Generate a unique filename: uuid_originalname.ext
-        :param original_name: Original filename
-        :return: Unique filename string
+        """Generate a unique filename with UUID prefix.
+        
+        Creates a filename in the format: {uuid}_originalname.ext to prevent
+        naming conflicts when storing documents.
+        
+        Args:
+            original_name: Original filename with extension.
+        
+        Returns:
+            str: Unique filename with 8-character UUID prefix.
         """
         name, ext = os.path.splitext(original_name)
         unique_id = str(uuid.uuid4())[:8]
         return f"{unique_id}_{original_name}"
 
-    def _extract_pdf_metadata(self, pdf_path):
+    def _extract_title_from_text(self, text, max_length=100):
+        """Extract a meaningful title from text content.
+        
+        Finds the first non-empty, substantial line from text that could serve
+        as a title. Filters out very short lines and common non-title patterns.
+        
+        Args:
+            text: Text content to extract title from.
+            max_length: Maximum length for the title. Defaults to 100.
+        
+        Returns:
+            str or None: Extracted title, or None if no suitable title found.
         """
-        Extract metadata from PDF file using PyPDF2.
-        :param pdf_path: Path to PDF file
-        :return: Dictionary with page_count, title, and preview text
+        if not text:
+            return None
+        
+        lines = text.split('\n')
+        for line in lines:
+            # Clean up the line
+            cleaned = line.strip()
+            
+            # Skip empty lines, very short lines, or lines that look like page numbers/dates
+            if not cleaned:
+                continue
+            if len(cleaned) < 3:
+                continue
+            if cleaned.isdigit():  # Skip pure numbers (page numbers)
+                continue
+            
+            # Check if line looks like a date pattern and skip
+            if any(pattern in cleaned.lower() for pattern in ['page ', 'chapter ', '---', '===']):
+                continue
+            
+            # This looks like a good title candidate
+            title = cleaned[:max_length]
+            if len(cleaned) > max_length:
+                title += "..."
+            return title
+        
+        return None
+
+    def _extract_pdf_metadata(self, pdf_path):
+        """Extract metadata from PDF file using pypdf.
+        
+        Extracts page count, title (from metadata or content), and preview
+        text from the first page of the PDF. If metadata title is generic or
+        missing, extracts title from the first page content.
+        
+        Args:
+            pdf_path: Path to the PDF file.
+        
+        Returns:
+            dict: Dictionary containing:
+                - page_count (int): Number of pages in the PDF.
+                - title (str or None): PDF title from metadata or content.
+                - preview (str): First 500 characters from first page.
+        
+        Raises:
+            ValueError: If PDF cannot be read or metadata extraction fails.
         """
         try:
             reader = PdfReader(pdf_path)
             page_count = len(reader.pages)
             
-            # Try to get title from metadata
-            title = None
-            if reader.metadata and reader.metadata.title:
-                title = reader.metadata.title
-            
-            # Extract text from first page for preview
+            # Extract text from first page for preview and title extraction
             preview_text = ""
             if page_count > 0:
                 preview_text = reader.pages[0].extract_text()
+            
+            # Try to get title from metadata first
+            title = None
+            if reader.metadata and reader.metadata.title:
+                metadata_title = reader.metadata.title.strip()
+                # Check if metadata title is meaningful (not generic)
+                if metadata_title and metadata_title.lower() not in ['(anonymous)', 'untitled', 'document', 'pdf']:
+                    title = metadata_title
+            
+            # If no good title from metadata, extract from content
+            if not title:
+                title = self._extract_title_from_text(preview_text)
             
             return {
                 "page_count": page_count,
@@ -98,10 +200,23 @@ class DocumentManager:
             raise ValueError(f"Failed to extract PDF metadata: {e}")
 
     def _extract_docx_metadata(self, docx_path):
-        """
-        Extract metadata from DOCX file.
-        :param docx_path: Path to DOCX file
-        :return: Dictionary with page_count (paragraphs), title, and preview text
+        """Extract metadata from DOCX file.
+        
+        Extracts paragraph count (as proxy for page count), title from
+        core properties or content, and preview text from first few paragraphs.
+        If core properties title is generic, extracts title from document content.
+        
+        Args:
+            docx_path: Path to the DOCX file.
+        
+        Returns:
+            dict: Dictionary containing:
+                - page_count (int): Number of paragraphs in the document.
+                - title (str or None): Document title from properties or content.
+                - preview (str): First 500 characters from first paragraphs.
+        
+        Raises:
+            ValueError: If DOCX cannot be read or metadata extraction fails.
         """
         try:
             doc = Document(docx_path)
@@ -109,15 +224,25 @@ class DocumentManager:
             # Count paragraphs as "pages"
             paragraph_count = len(doc.paragraphs)
             
+            # Extract text from first few paragraphs for preview
+            preview_text = ""
+            for para in doc.paragraphs[:10]:  # First 10 paragraphs
+                if para.text.strip():  # Only include non-empty paragraphs
+                    preview_text += para.text + "\n"
+            
             # Try to get title from core properties
             title = None
             if doc.core_properties.title:
-                title = doc.core_properties.title
+                properties_title = doc.core_properties.title.strip()
+                # Check if title is meaningful (not generic)
+                if properties_title and properties_title.lower() not in [
+                    'word document', 'document', 'untitled', 'doc', 'docx'
+                ]:
+                    title = properties_title
             
-            # Extract text from first few paragraphs for preview
-            preview_text = ""
-            for para in doc.paragraphs[:5]:  # First 5 paragraphs
-                preview_text += para.text + "\n"
+            # If no good title from properties, extract from content
+            if not title:
+                title = self._extract_title_from_text(preview_text)
             
             return {
                 "page_count": paragraph_count,
@@ -128,10 +253,22 @@ class DocumentManager:
             raise ValueError(f"Failed to extract DOCX metadata: {e}")
 
     def _extract_txt_metadata(self, txt_path):
-        """
-        Extract metadata from TXT file.
-        :param txt_path: Path to TXT file
-        :return: Dictionary with line_count, title (first line), and preview text
+        """Extract metadata from TXT file.
+        
+        Extracts line count, uses first meaningful line as title, and creates
+        a preview from the beginning of the file.
+        
+        Args:
+            txt_path: Path to the TXT file.
+        
+        Returns:
+            dict: Dictionary containing:
+                - page_count (int): Number of lines in the file.
+                - title (str or None): First meaningful line as title.
+                - preview (str): First 500 characters of the file.
+        
+        Raises:
+            ValueError: If TXT file cannot be read or is invalid.
         """
         try:
             with open(txt_path, 'r', encoding='utf-8') as f:
@@ -140,12 +277,8 @@ class DocumentManager:
             lines = content.split('\n')
             line_count = len(lines)
             
-            # Use first non-empty line as title
-            title = None
-            for line in lines:
-                if line.strip():
-                    title = line.strip()
-                    break
+            # Extract title from content
+            title = self._extract_title_from_text(content)
             
             return {
                 "page_count": line_count,
@@ -156,17 +289,36 @@ class DocumentManager:
             raise ValueError(f"Failed to extract TXT metadata: {e}")
 
     def _generate_doc_id(self):
-        """Generate a unique numeric ID for a document."""
-        if not self.documents:
-            return "1"
-        max_id = max(int(doc['id']) for doc in self.documents)
-        return str(max_id + 1)
+        """Generate a unique numeric ID for a document.
+        
+        Returns:
+            str: Sequential numeric ID as a string (1, 2, 3, ...).
+        """
+        return str(len(self.documents) + 1)
+    
+    def _reindex_documents(self):
+        """Reindex all documents with sequential IDs."""
+        for idx, doc in enumerate(self.documents, start=1):
+            doc['id'] = str(idx)
 
     def add_doc(self, source_path):
-        """
-        Add a document (PDF, DOCX, or TXT) to the system.
-        :param source_path: Path to the source document file
-        :return: Document metadata dictionary
+        """Add a document (PDF, DOCX, or TXT) to the system.
+        
+        Validates file type, copies the file to the appropriate storage directory,
+        extracts metadata, and creates a document record. Supported formats:
+        .pdf, .docx, .txt.
+        
+        Args:
+            source_path: Path to the source document file.
+        
+        Returns:
+            dict: Document metadata dictionary containing id, filename, filepath,
+                extension, title, page_count, dates, and preview.
+        
+        Raises:
+            FileNotFoundError: If the source file doesn't exist.
+            ValueError: If file type is not supported.
+            PermissionError: If file cannot be copied to storage.
         """
         # Validate file exists
         if not os.path.exists(source_path):
@@ -230,23 +382,31 @@ class DocumentManager:
         }
         
         self.documents.append(doc)
+        self._reindex_documents()
         self._save_documents()
         
         return doc
 
     def list_docs(self):
+        """List all documents sorted by ID (1 to n).
+        
+        Returns:
+            list: List of document metadata dictionaries sorted by ID.
         """
-        List all documents sorted by last_accessed (most recent first).
-        :return: List of document metadata
-        """
-        return sorted(self.documents, key=lambda d: d['last_accessed'], reverse=True)
+        return sorted(self.documents, key=lambda d: int(d['id']))
 
     def remove_doc(self, doc_id):
-        """
-        Remove a document by ID with confirmation.
-        :param doc_id: Full or partial document ID
-        :raises PDFNotFoundError: If document not found
-        :raises StorageError: If file deletion fails
+        """Remove a document by ID with confirmation.
+        
+        Prompts for user confirmation before permanently deleting both
+        the document file and its metadata.
+        
+        Args:
+            doc_id: Full or partial document ID.
+        
+        Raises:
+            PDFNotFoundError: If document with the given ID is not found.
+            StorageError: If the document file cannot be deleted from storage.
         """
         doc = self.get_doc(doc_id)  # This will raise PDFNotFoundError if not found
         
@@ -269,15 +429,24 @@ class DocumentManager:
         
         # Remove from list
         self.documents.remove(doc)
+        self._reindex_documents()
         self._save_documents()
         print(format_success(f"Document deleted: {doc_name}"))
 
     def get_doc(self, doc_id):
-        """
-        Retrieve a document by full or partial ID.
-        :param doc_id: Full or partial document ID
-        :return: Document metadata
-        :raises PDFNotFoundError: If document not found
+        """Retrieve a document by full or partial ID.
+        
+        Searches for a document where the ID starts with the provided string.
+        
+        Args:
+            doc_id: Full or partial document ID to search for.
+        
+        Returns:
+            dict: Document metadata dictionary.
+        
+        Raises:
+            PDFNotFoundError: If no document with matching ID is found.
+                Includes list of available document IDs in the error.
         """
         for doc in self.documents:
             if doc['id'].startswith(str(doc_id)):
@@ -288,18 +457,32 @@ class DocumentManager:
         raise PDFNotFoundError(doc_id, available_ids)
 
     def update_last_accessed(self, doc_id):
-        """Update the last_accessed timestamp for a document."""
+        """Update the last_accessed timestamp for a document.
+        
+        Updates the last_accessed field to the current timestamp and saves
+        the document metadata.
+        
+        Args:
+            doc_id: Full or partial document ID.
+        """
         doc = self.get_doc(doc_id)
         if doc:
             doc['last_accessed'] = datetime.now().strftime("%m-%d-%YT%H:%M:%S.%f")
             self._save_documents()
 
     def _get_cache_path(self, doc_id, page_num=None):
-        """
-        Get the cache file path for a document.
-        :param doc_id: Document ID
-        :param page_num: Page number (None for full document)
-        :return: Path to cache file
+        """Get the cache file path for a document.
+        
+        Constructs the path for cached extracted text. Supports both full
+        document caching and individual page caching for PDFs.
+        
+        Args:
+            doc_id: Document ID.
+            page_num: Page number for individual page cache (None for full
+                document cache). Defaults to None.
+        
+        Returns:
+            str: Absolute path to the cache file.
         """
         if page_num is None:
             filename = f"{doc_id}_full.txt"
@@ -308,12 +491,21 @@ class DocumentManager:
         return os.path.join(self.cache_dir, filename)
 
     def _extract_full_text(self, doc_path, extension, page_count):
-        """
-        Extract all text from a document.
-        :param doc_path: Path to document file
-        :param extension: File extension
-        :param page_count: Number of pages/paragraphs/lines
-        :return: Extracted text string
+        """Extract all text from a document.
+        
+        Extracts complete text content from PDF, DOCX, or TXT files. Shows
+        progress bar for large PDFs (>10 pages).
+        
+        Args:
+            doc_path: Path to the document file.
+            extension: File extension (.pdf, .docx, or .txt).
+            page_count: Number of pages/paragraphs/lines for context.
+        
+        Returns:
+            str: Complete extracted text from the document.
+        
+        Raises:
+            ValueError: If text extraction fails.
         """
         try:
             if extension == '.pdf':
@@ -349,11 +541,24 @@ class DocumentManager:
             raise ValueError(f"Failed to extract text: {e}")
 
     def extract_text(self, doc_id, page_num=None):
-        """
-        Extract text from a document with caching.
-        :param doc_id: Document ID
-        :param page_num: Page number (None for full document)
-        :return: Tuple of (text, word_count)
+        """Extract text from a document with caching.
+        
+        Extracts text from a complete document or a specific page (PDFs only).
+        Uses cached version if available to improve performance. Updates the
+        last accessed timestamp.
+        
+        Args:
+            doc_id: Document ID.
+            page_num: Page number to extract (PDF only). None extracts full
+                document. Defaults to None.
+        
+        Returns:
+            tuple: (text (str), word_count (int)) containing the extracted text
+                and word count.
+        
+        Raises:
+            ValueError: If document not found, page extraction requested for
+                non-PDF, or invalid page number.
         """
         doc = self.get_doc(doc_id)
         if not doc:
@@ -403,10 +608,20 @@ class DocumentManager:
         return text, word_count
 
     def search_docs(self, query):
-        """
-        Search all documents for a query string.
-        :param query: Search query
-        :return: List of tuples (doc, page_num, context)
+        """Search all documents for a query string.
+        
+        Performs case-insensitive full-text search across all documents.
+        Uses cached text when available. Extracts context around matches
+        and identifies page numbers for PDF documents.
+        
+        Args:
+            query: Search query string.
+        
+        Returns:
+            list: List of tuples (doc, page_num, context) where:
+                - doc (dict): Document metadata dictionary.
+                - page_num (int or None): Page number for PDFs, None for others.
+                - context (str): Text excerpt with query highlighted using **.
         """
         if not query:
             return []
@@ -468,11 +683,16 @@ class DocumentManager:
         return results
 
     def _chunk_text(self, text, chunk_size=3000):
-        """
-        Split text into chunks of approximately chunk_size words.
-        :param text: Text to split
-        :param chunk_size: Approximate number of words per chunk
-        :return: List of text chunks
+        """Split text into chunks of approximately chunk_size words.
+        
+        Divides long text into manageable chunks for AI processing.
+        
+        Args:
+            text: Text to split.
+            chunk_size: Approximate number of words per chunk. Defaults to 3000.
+        
+        Returns:
+            list: List of text chunk strings.
         """
         words = text.split()
         chunks = []
@@ -484,12 +704,26 @@ class DocumentManager:
         return chunks
 
     def _summarize_text(self, text, max_words, purpose="main"):
-        """
-        Summarize text using OpenAI API.
-        :param text: Text to summarize
-        :param max_words: Maximum words for summary
-        :param purpose: Purpose of summary ("main", "chunk", or "final")
-        :return: Summary string
+        """Summarize text using OpenAI API.
+        
+        Generates AI-powered summary using gpt-4o-mini. Adjusts prompt based
+        on the purpose (main document, chunk, or final synthesis). Implements
+        retry logic and tracks costs.
+        
+        Args:
+            text: Text to summarize.
+            max_words: Maximum words for the summary.
+            purpose: Purpose of summary - "main" for complete documents,
+                "chunk" for document sections, "final" for synthesizing
+                chunk summaries. Defaults to "main".
+        
+        Returns:
+            tuple: (summary (str), cost (float)) containing the generated
+                summary and API cost.
+        
+        Raises:
+            ValueError: If OpenAI client not initialized, API call fails,
+                or rate limits exceeded.
         """
         if not self.openai_client:
             raise ValueError("OpenAI client not initialized. Check your API key.")
@@ -546,11 +780,23 @@ class DocumentManager:
         raise ValueError("Failed to generate summary after multiple attempts.")
 
     def summarize_doc(self, doc_id, max_words=600):
-        """
-        Generate AI summary for a document.
-        :param doc_id: Document ID
-        :param max_words: Maximum words for summary
-        :return: Tuple of (summary, total_cost)
+        """Generate AI summary for a document.
+        
+        Creates a comprehensive AI-generated summary of a document. For large
+        documents (>10,000 words), uses a chunking strategy: summarizes sections
+        first, then synthesizes those summaries into a final summary. Saves the
+        summary to document metadata.
+        
+        Args:
+            doc_id: Document ID.
+            max_words: Maximum words for the final summary. Defaults to 600.
+        
+        Returns:
+            tuple: (summary (str), total_cost (float)) containing the generated
+                summary and total API cost.
+        
+        Raises:
+            ValueError: If document not found or OpenAI client not initialized.
         """
         doc = self.get_doc(doc_id)
         if not doc:
@@ -610,7 +856,12 @@ class DocumentManager:
         return summary, total_cost
 
     def _register_commands(self):
-        """Register document-related commands."""
+        """Register document-related commands.
+        
+        Registers all document management commands (docs-add, docs-list,
+        docs-remove, docs-view, docs-extract, docs-search, docs-summarize,
+        docs-refresh) with the command registry.
+        """
         self.registry.register_command('docs-add', self.cmd_docs_add, 'Add a document (PDF, DOCX, TXT)', 'docs')
         self.registry.register_command('docs-list', self.cmd_docs_list, 'List all documents', 'docs')
         self.registry.register_command('docs-remove', self.cmd_docs_remove, 'Remove a document', 'docs')
@@ -618,6 +869,7 @@ class DocumentManager:
         self.registry.register_command('docs-extract', self.cmd_docs_extract, 'Extract text from a document', 'docs')
         self.registry.register_command('docs-search', self.cmd_docs_search, 'Search across all documents', 'docs')
         self.registry.register_command('docs-summarize', self.cmd_docs_summarize, 'Generate AI summary for a document', 'docs')
+        self.registry.register_command('docs-refresh', self.cmd_docs_refresh, 'Refresh document titles with intelligent extraction', 'docs')
 
     def cmd_docs_add(self, *args):
         """Command to add a document."""
@@ -703,17 +955,7 @@ class DocumentManager:
         doc_id = args[0]
         
         try:
-            doc = self.get_doc(doc_id)
-            if not doc:
-                print(f"Error: Document with ID {doc_id} not found.")
-                return
-            
-            confirmation = input(f"⚠️  WARNING: This will delete '{doc['filename']}'.\nAre you sure? (yes/no): ")
-            if confirmation.lower() == "yes":
-                self.remove_doc(doc_id)
-                print(f"✓ Document deleted: {doc['filename']}")
-            else:
-                print("✗ Deletion canceled.")
+            self.remove_doc(doc_id)
                 
         except Exception as e:
             print(f"Error: {e}")
@@ -937,3 +1179,63 @@ class DocumentManager:
             print(f"Error: {e}")
         except Exception as e:
             print(f"Error: {e}")
+
+    def cmd_docs_refresh(self, *args):
+        """Command to refresh document titles with intelligent extraction."""
+        if not self.documents:
+            print("No documents found in the system.")
+            return
+        
+        print(f"Refreshing titles for {len(self.documents)} document(s)...\n")
+        
+        updated_count = 0
+        
+        for doc in self.documents:
+            old_title = doc['title']
+            filepath = doc['filepath']
+            extension = doc['extension']
+            
+            # Check if title needs updating (is generic)
+            needs_update = False
+            
+            if extension == '.pdf' and old_title.lower() in ['(anonymous)', 'untitled', 'document', 'pdf']:
+                needs_update = True
+            elif extension == '.docx' and old_title.lower() in ['word document', 'document', 'untitled', 'doc', 'docx']:
+                needs_update = True
+            elif extension == '.txt' and (not old_title or old_title.isdigit()):
+                needs_update = True
+            
+            if not needs_update:
+                continue
+            
+            # Re-extract metadata to get new title
+            try:
+                if extension == '.pdf':
+                    metadata = self._extract_pdf_metadata(filepath)
+                elif extension == '.docx':
+                    metadata = self._extract_docx_metadata(filepath)
+                elif extension == '.txt':
+                    metadata = self._extract_txt_metadata(filepath)
+                else:
+                    continue
+                
+                new_title = metadata['title']
+                
+                # If still no title, use filename without extension
+                if not new_title:
+                    new_title = os.path.splitext(doc['filename'])[0]
+                
+                # Update the title
+                doc['title'] = new_title
+                updated_count += 1
+                
+                print(f"✓ {doc['id']}: '{old_title}' → '{new_title}'")
+                
+            except Exception as e:
+                print(f"✗ {doc['id']}: Error updating title - {e}")
+        
+        if updated_count > 0:
+            self._save_documents()
+            print(f"\n✓ Successfully refreshed {updated_count} document title(s)")
+        else:
+            print("No documents needed title updates.")

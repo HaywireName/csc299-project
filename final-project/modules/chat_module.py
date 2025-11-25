@@ -6,14 +6,40 @@ from openai import OpenAI
 
 
 class ChatManager:
-    def __init__(self, data_manager, registry):
-        """
-        Initialize ChatManager with dependencies.
-        :param data_manager: Handles data storage and retrieval.
-        :param registry: Command registry for registering commands.
+    """Manages interactive chat sessions with OpenAI GPT models.
+    
+    The ChatManager provides an interactive chat interface with context-aware
+    conversations. Supports multiple context modes (general, tasks, pdfs, all)
+    to provide the AI with relevant information from the user's workspace.
+    Features conversation history, streaming responses, and cost tracking.
+    
+    Attributes:
+        data_manager: Data persistence manager for chat history.
+        registry: Command registry for registering chat commands.
+        openai_client: OpenAI API client instance.
+        current_conversation_id: ID of the active conversation.
+        conversations: List of all conversation histories.
+        context_type: Current context mode (general/tasks/pdfs/all).
+        context_data: Loaded context data for the AI.
+        session_cost: Cumulative API cost for the session.
+        session_input_tokens: Total input tokens used in session.
+        session_output_tokens: Total output tokens used in session.
+    """
+    
+    def __init__(self, data_manager, registry, agent_manager=None):
+        """Initialize ChatManager with dependencies.
+        
+        Loads conversation history, initializes OpenAI client, and registers
+        chat commands.
+        
+        Args:
+            data_manager: Data persistence manager instance.
+            registry: Command registry instance for registering commands.
+            agent_manager: AgentManager instance for agent commands (optional).
         """
         self.data_manager = data_manager
         self.registry = registry
+        self.agent_manager = agent_manager
         self.openai_client = None
         self.current_conversation_id = None
         self.conversations = []
@@ -27,7 +53,12 @@ class ChatManager:
         self._register_commands()
 
     def _init_openai_client(self):
-        """Initialize OpenAI client with API key from environment."""
+        """Initialize OpenAI client with API key from environment.
+        
+        Attempts to create an OpenAI client using the API key from the
+        OPENAI_API_KEY environment variable. Chat functionality will be
+        disabled if the key is not found.
+        """
         try:
             api_key = os.environ.get('OPENAI_API_KEY')
             if api_key:
@@ -38,7 +69,11 @@ class ChatManager:
             print(f"Warning: Failed to initialize OpenAI client: {e}")
 
     def _load_conversations(self):
-        """Load conversation history from storage."""
+        """Load conversation history from storage.
+        
+        Loads all saved conversation histories from chat_history.json.
+        Initializes with empty list if no history exists.
+        """
         data = self.data_manager.load("chat_history.json")
         if data and 'conversations' in data:
             self.conversations = data['conversations']
@@ -46,12 +81,23 @@ class ChatManager:
             self.conversations = []
 
     def _save_conversations(self):
-        """Save conversation history to storage."""
+        """Save conversation history to storage.
+        
+        Persists all conversation histories to chat_history.json.
+        """
         data = {'conversations': self.conversations}
         self.data_manager.save("chat_history.json", data)
 
     def _get_current_conversation(self):
-        """Get or create current conversation."""
+        """Get or create current conversation.
+        
+        Returns the active conversation if one exists, otherwise creates
+        a new conversation with a unique ID.
+        
+        Returns:
+            dict: Conversation dictionary with id, started timestamp, and
+                messages list.
+        """
         if self.current_conversation_id:
             # Find existing conversation
             for conv in self.conversations:
@@ -70,10 +116,16 @@ class ChatManager:
         return conversation
 
     def _get_conversation_history(self, limit=10):
-        """
-        Get last N messages from current conversation.
-        :param limit: Maximum number of messages to retrieve
-        :return: List of messages
+        """Get last N messages from current conversation.
+        
+        Retrieves the most recent messages to provide context for the AI.
+        Limits message history to prevent token overuse.
+        
+        Args:
+            limit: Maximum number of messages to retrieve. Defaults to 10.
+        
+        Returns:
+            list: List of message dictionaries containing role, content, and timestamp.
         """
         conversation = self._get_current_conversation()
         messages = conversation['messages']
@@ -85,10 +137,14 @@ class ChatManager:
             return messages[-limit:]
 
     def _save_message(self, role, content):
-        """
-        Save a message to the current conversation.
-        :param role: Message role (user/assistant)
-        :param content: Message content
+        """Save a message to the current conversation.
+        
+        Appends a message to the active conversation history with timestamp
+        and persists to storage.
+        
+        Args:
+            role: Message role ('user' or 'assistant').
+            content: Message content text.
         """
         conversation = self._get_current_conversation()
         message = {
@@ -100,7 +156,14 @@ class ChatManager:
         self._save_conversations()
 
     def _clear_conversation(self):
-        """Clear the current conversation history."""
+        """Clear the current conversation history.
+        
+        Removes all messages from the active conversation while preserving
+        the conversation structure.
+        
+        Returns:
+            bool: True if conversation was cleared, False if no active conversation.
+        """
         if self.current_conversation_id:
             for conv in self.conversations:
                 if conv['id'] == self.current_conversation_id:
@@ -110,11 +173,17 @@ class ChatManager:
         return False
 
     def _format_response(self, text, width=80):
-        """
-        Format response text with word wrapping.
-        :param text: Text to format
-        :param width: Maximum line width
-        :return: Formatted text
+        """Format response text with word wrapping.
+        
+        Wraps long lines while preserving paragraph structure and intentional
+        line breaks within paragraphs.
+        
+        Args:
+            text: Text to format.
+            width: Maximum line width in characters. Defaults to 80.
+        
+        Returns:
+            str: Formatted text with proper word wrapping.
         """
         # Split into paragraphs
         paragraphs = text.split('\n\n')
@@ -138,9 +207,15 @@ class ChatManager:
         return '\n\n'.join(formatted_paragraphs)
 
     def _load_tasks_context(self):
-        """
-        Load all tasks from all folders and format for AI context.
-        :return: Formatted task context string
+        """Load all tasks from all folders and format for AI context.
+        
+        Retrieves all tasks across all folders and formats them into a
+        readable context string for the AI assistant.
+        
+        Returns:
+            str: Formatted string containing all tasks organized by folder,
+                including task IDs, titles, deadlines, priorities, statuses,
+                and descriptions.
         """
         try:
             tasks_data = self.data_manager.load("tasks.json")
@@ -176,9 +251,14 @@ class ChatManager:
             return f"Error loading tasks: {e}"
 
     def _load_pdfs_context(self):
-        """
-        Load all PDFs and their summaries and format for AI context.
-        :return: Formatted PDF context string
+        """Load all documents and their summaries and format for AI context.
+        
+        Retrieves all documents (PDFs, DOCX, TXT) with their metadata and
+        summaries, formatted for AI comprehension.
+        
+        Returns:
+            str: Formatted string containing all documents with IDs, titles,
+                size information, and summaries.
         """
         try:
             docs_data = self.data_manager.load("docs_metadata.json")
@@ -215,9 +295,14 @@ class ChatManager:
             return f"Error loading documents: {e}"
 
     def _build_context_message(self):
-        """
-        Build system message with relevant context based on context_type.
-        :return: System message with context
+        """Build system message with relevant context based on context_type.
+        
+        Constructs the system prompt for the AI by combining base instructions
+        with context data (tasks, documents, or both) depending on the active
+        context mode.
+        
+        Returns:
+            str: Complete system message with embedded context information.
         """
         base_message = "You are a helpful assistant for a task and knowledge management system."
         
@@ -239,10 +324,17 @@ class ChatManager:
         return "\n".join(context_parts)
 
     def set_context(self, context_type):
-        """
-        Set the current context type and reload context data.
-        :param context_type: Type of context ('general', 'tasks', 'pdfs', 'all')
-        :return: Success status
+        """Set the current context type and reload context data.
+        
+        Changes the active context mode and loads the corresponding data.
+        Valid modes: general (no context), tasks (task data only),
+        pdfs (document data only), all (both tasks and documents).
+        
+        Args:
+            context_type: Type of context to use ('general', 'tasks', 'pdfs', 'all').
+        
+        Returns:
+            bool: True if context was successfully set, False if invalid type.
         """
         valid_contexts = ['general', 'tasks', 'pdfs', 'all']
         if context_type not in valid_contexts:
@@ -254,10 +346,17 @@ class ChatManager:
         return True
 
     def send_message(self, message):
-        """
-        Send a message to OpenAI and get response.
-        :param message: User message
-        :return: Assistant response
+        """Send a message to OpenAI and get response.
+        
+        Sends user message to OpenAI's GPT-4o model with conversation history
+        and context. Streams the response in real-time and tracks token usage
+        and costs. Saves both user message and assistant response to history.
+        
+        Args:
+            message: User message text.
+        
+        Returns:
+            str: Complete assistant response text, or error message if API call fails.
         """
         if not self.openai_client:
             return "Error: OpenAI client not initialized. Check your OPENAI_API_KEY."
@@ -346,18 +445,29 @@ class ChatManager:
             return error_msg
 
     def _show_chat_help(self):
-        """Display chat mode help."""
+        """Display chat mode help.
+        
+        Shows available chat commands and their descriptions.
+        """
         print("\nChat Mode Commands:")
-        print("  /exit, /quit     - Return to main menu")
+        print("  /home            - Return to main menu")
         print("  /clear           - Clear conversation history")
         print("  /context <type>  - Switch context (general, tasks, pdfs, all)")
         print("  /refresh         - Reload context data")
         print("  /cost            - Show API usage and costs for this session")
+        print("  /analyze         - Analyze tasks with AI insights")
+        print("  /synthesize      - Synthesize knowledge about a topic")
+        print("  /connections     - Show connections between documents and tasks")
         print("  /help            - Show this help")
         print()
 
     def _chat_loop(self):
-        """Inner loop for chat mode."""
+        """Inner loop for chat mode.
+        
+        Main interactive loop that handles user input, processes chat commands
+        (starting with /), and sends messages to OpenAI. Continues until
+        user exits or interrupts.
+        """
         while True:
             try:
                 # Dynamic prompt based on context
@@ -369,11 +479,11 @@ class ChatManager:
                 
                 # Handle special commands
                 if user_input.startswith('/'):
-                    command_parts = user_input.lower().split(maxsplit=1)
-                    command = command_parts[0]
+                    command_parts = user_input.split(maxsplit=1)
+                    command = command_parts[0].lower()
                     args = command_parts[1] if len(command_parts) > 1 else None
                     
-                    if command in ['/exit', '/quit']:
+                    if command == '/home':
                         break
                     elif command == '/clear':
                         if self._clear_conversation():
@@ -398,6 +508,26 @@ class ChatManager:
                         print(f"   Output tokens: {self.session_output_tokens:,}")
                         print(f"   Total cost:    ${self.session_cost:.4f}")
                         print()
+                    elif command == '/analyze':
+                        if self.agent_manager:
+                            folder_arg = args.split()[1] if args and '--folder' in args else None
+                            self.agent_manager.analyze_tasks(folder_arg)
+                        else:
+                            print("Agent features not available.")
+                    elif command == '/synthesize':
+                        if self.agent_manager:
+                            if args:
+                                self.agent_manager.synthesize_topic(args)
+                            else:
+                                print("Usage: /synthesize <topic>")
+                                print("Example: /synthesize machine learning")
+                        else:
+                            print("Agent features not available.")
+                    elif command == '/connections':
+                        if self.agent_manager:
+                            self.agent_manager.show_connections()
+                        else:
+                            print("Agent features not available.")
                     elif command == '/help':
                         self._show_chat_help()
                     else:
@@ -416,9 +546,14 @@ class ChatManager:
                 break
 
     def start_chat(self, context_type='general'):
-        """
-        Enter interactive chat mode.
-        :param context_type: Type of context to use
+        """Enter interactive chat mode.
+        
+        Initiates an interactive chat session with the specified context mode.
+        Shows session summary with cost information upon exit.
+        
+        Args:
+            context_type: Type of context to use ('general', 'tasks', 'pdfs', 'all').
+                Defaults to 'general'.
         """
         if not self.openai_client:
             print("Error: Chat mode requires OpenAI API key.")
@@ -431,10 +566,22 @@ class ChatManager:
         
         self.set_context(context_type)
         
-        if context_type == 'general':
-            print("Entering chat mode. Type '/exit' to leave, '/help' for commands.\n")
-        else:
-            print(f"Entering chat mode with {context_type} context.\n")
+        # Show chat commands
+        print("\n" + "=" * 60)
+        print("Chat Mode - Available Commands")
+        print("=" * 60)
+        print("\n💬 Chat Commands:")
+        print("  /home            - Return to main menu")
+        print("  /clear           - Clear conversation history")
+        print("  /context <type>  - Switch context (general, tasks, pdfs, all)")
+        print("  /refresh         - Reload context data")
+        print("  /cost            - Show API usage and costs")
+        print("  /analyze         - Analyze tasks with AI insights")
+        print("  /synthesize      - Synthesize knowledge about a topic")
+        print("  /connections     - Show connections between documents and tasks")
+        print("  /help            - Show this help")
+        print("\nType your message to chat with AI, or use slash commands above.")
+        print("=" * 60 + "\n")
         
         # Run chat loop
         self._chat_loop()
@@ -446,13 +593,21 @@ class ChatManager:
             print(f"\n💰 Session Summary: ${self.session_cost:.4f} ({self.session_input_tokens:,} input, {self.session_output_tokens:,} output tokens)")
 
     def _register_commands(self):
-        """Register chat-related commands."""
-        self.registry.register_command('chat', self.cmd_chat, 'Enter interactive chat mode', 'chat')
+        """Register chat-related commands.
+        
+        Registers the chat command with the command registry.
+        """
+        self.registry.register_command('chat', self.cmd_chat, 'Enter interactive chat mode', 'global')
 
     def cmd_chat(self, *args):
-        """
-        Command to enter chat mode.
-        Accepts --context flag to specify context type.
+        """Command to enter chat mode.
+        
+        Starts an interactive chat session. Supports --context flag to
+        specify the context mode.
+        
+        Args:
+            *args: Command arguments. Use '--context <type>' to specify
+                context mode (general/tasks/pdfs/all).
         """
         context_type = 'general'
         

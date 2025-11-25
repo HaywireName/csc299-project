@@ -4,11 +4,31 @@ from tabulate import tabulate
 
 
 class SettingsManager:
+    """Manages application settings and configuration.
+    
+    The SettingsManager handles all application settings including OpenAI API
+    configuration, default preferences, and feature toggles. Provides validation,
+    import/export functionality, and an interactive settings mode.
+    
+    Attributes:
+        data_manager: Data persistence manager for settings.
+        registry: Command registry for registering settings commands.
+        settings_file: Filename for settings storage.
+        defaults: Dictionary of default setting values.
+        descriptions: Dictionary mapping setting keys to descriptions.
+        valid_models: List of valid OpenAI model names.
+        settings: Current settings dictionary.
+    """
+    
     def __init__(self, data_manager, registry):
-        """
-        Initialize SettingsManager with dependencies.
-        :param data_manager: Handles data storage and retrieval.
-        :param registry: Command registry for registering commands.
+        """Initialize SettingsManager with dependencies.
+        
+        Loads settings from storage (or uses defaults), defines setting
+        metadata, and registers settings commands.
+        
+        Args:
+            data_manager: Data persistence manager instance.
+            registry: Command registry instance for registering commands.
         """
         self.data_manager = data_manager
         self.registry = registry
@@ -47,7 +67,11 @@ class SettingsManager:
         self._register_commands()
 
     def _load_settings(self):
-        """Load settings from file or use defaults."""
+        """Load settings from file or use defaults.
+        
+        Loads settings from storage and merges with defaults to ensure all
+        expected keys exist. Creates new settings file with defaults if none exists.
+        """
         data = self.data_manager.load(self.settings_file)
         if data:
             # Merge with defaults to ensure all keys exist
@@ -57,23 +81,36 @@ class SettingsManager:
             self._save_settings()
 
     def _save_settings(self):
-        """Save settings to file."""
+        """Save settings to file.
+        
+        Persists current settings to the settings.json file.
+        """
         self.data_manager.save(self.settings_file, self.settings)
 
     def get_setting(self, key):
-        """
-        Get a setting value.
-        :param key: Setting key
-        :return: Setting value or None if not found
+        """Get a setting value.
+        
+        Args:
+            key: Setting key to retrieve.
+        
+        Returns:
+            Setting value, or None if key doesn't exist.
         """
         return self.settings.get(key)
 
     def set_setting(self, key, value):
-        """
-        Set a setting value with validation.
-        :param key: Setting key
-        :param value: New value
-        :return: True if successful, False otherwise
+        """Set a setting value with validation.
+        
+        Validates the new value before updating the setting. Persists
+        changes immediately to storage.
+        
+        Args:
+            key: Setting key to update.
+            value: New value for the setting.
+        
+        Returns:
+            tuple: (success (bool), message (str)) indicating result and
+                description of the operation.
         """
         if key not in self.defaults:
             return False, f"Unknown setting: {key}"
@@ -89,11 +126,19 @@ class SettingsManager:
         return True, f"Updated: {key} = {value}"
 
     def _validate_setting(self, key, value):
-        """
-        Validate a setting value.
-        :param key: Setting key
-        :param value: Value to validate
-        :return: (valid: bool, message: str)
+        """Validate a setting value.
+        
+        Checks if the provided value is valid for the given setting key.
+        Different validation rules apply to different setting types (API keys,
+        model names, numeric thresholds, boolean flags, etc.).
+        
+        Args:
+            key: Setting key being validated.
+            value: Value to validate.
+        
+        Returns:
+            tuple: (valid (bool), message (str)) where valid indicates if
+                validation passed and message describes the result.
         """
         if key == "openai_api_key":
             if not isinstance(value, str):
@@ -154,15 +199,24 @@ class SettingsManager:
         return True, "Valid"
 
     def reset_settings(self):
-        """Reset all settings to defaults."""
+        """Reset all settings to defaults.
+        
+        Restores all settings to their default values and saves to storage.
+        """
         self.settings = self.defaults.copy()
         self._save_settings()
 
     def export_settings(self, filepath):
-        """
-        Export settings to a file.
-        :param filepath: File path to export to
-        :return: Success status
+        """Export settings to a file.
+        
+        Saves current settings to a JSON file for backup or transfer.
+        
+        Args:
+            filepath: Path where settings should be exported.
+        
+        Returns:
+            tuple: (success (bool), message (str)) indicating result and
+                path or error details.
         """
         try:
             with open(filepath, 'w') as f:
@@ -172,10 +226,17 @@ class SettingsManager:
             return False, f"Failed to export settings: {e}"
 
     def import_settings(self, filepath):
-        """
-        Import settings from a file.
-        :param filepath: File path to import from
-        :return: Success status
+        """Import settings from a file.
+        
+        Loads settings from a JSON file after validating all values.
+        Merges imported settings with defaults to ensure completeness.
+        
+        Args:
+            filepath: Path to settings file to import.
+        
+        Returns:
+            tuple: (success (bool), message (str)) indicating result and
+                path or error details.
         """
         try:
             with open(filepath, 'r') as f:
@@ -201,21 +262,31 @@ class SettingsManager:
             return False, f"Failed to import settings: {e}"
 
     def _mask_api_key(self, key):
-        """
-        Mask API key for display (show first 3 and last 3 chars).
-        :param key: API key to mask
-        :return: Masked key
+        """Mask API key for display (show first 3 and last 3 chars).
+        
+        Args:
+            key: API key to mask.
+        
+        Returns:
+            str: Masked API key showing only first and last 3 characters,
+                or '(not set)' if key is too short or empty.
         """
         if not key or len(key) < 10:
             return "(not set)"
         return f"{key[:3]}...{key[-3:]}"
 
     def _format_value(self, key, value):
-        """
-        Format a setting value for display.
-        :param key: Setting key
-        :param value: Setting value
-        :return: Formatted string
+        """Format a setting value for display.
+        
+        Formats values based on their type and purpose for user-friendly
+        display (e.g., masks API keys, adds units to numeric values).
+        
+        Args:
+            key: Setting key.
+            value: Setting value to format.
+        
+        Returns:
+            str: Formatted value string suitable for display.
         """
         if key == "openai_api_key":
             return f"{self._mask_api_key(value)} {'✓' if value else '✗'}"
@@ -231,7 +302,11 @@ class SettingsManager:
             return str(value)
 
     def show_settings(self):
-        """Display all settings in formatted output."""
+        """Display all settings in formatted output.
+        
+        Shows current settings values, available commands, and setting
+        descriptions in a formatted table.
+        """
         print("\n" + "=" * 60)
         print("Current Settings")
         print("=" * 60)
@@ -273,7 +348,11 @@ class SettingsManager:
         print("=" * 60 + "\n")
 
     def _settings_loop(self):
-        """Settings mode interactive loop."""
+        """Settings mode interactive loop.
+        
+        Main loop for interactive settings mode. Handles user commands:
+        show, set, reset, export, import, help, and exit.
+        """
         while True:
             try:
                 user_input = input("settings> ").strip()
@@ -365,17 +444,30 @@ class SettingsManager:
                 break
 
     def start_settings_mode(self):
-        """Enter settings mode."""
+        """Enter settings mode.
+        
+        Starts an interactive settings session where users can view and
+        modify application settings.
+        """
         print("\nEntering settings mode...\n")
         self.show_settings()
         self._settings_loop()
         print("Exiting settings mode.\n")
 
     def _register_commands(self):
-        """Register settings-related commands."""
+        """Register settings-related commands.
+        
+        Registers the settings command with the command registry.
+        """
         self.registry.register_command('settings', self.cmd_settings, 
                                       'Manage application settings', 'settings')
 
     def cmd_settings(self, *args):
-        """Command to enter settings mode."""
+        """Command to enter settings mode.
+        
+        Launches the interactive settings management interface.
+        
+        Args:
+            *args: Unused command arguments.
+        """
         self.start_settings_mode()

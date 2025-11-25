@@ -31,41 +31,78 @@ from modules.agent_module import AgentManager
 from modules.settings_module import SettingsManager
 
 class SessionState:
-    """Manages session state for module switching and context."""
+    """Manages session state for module switching and context.
+    
+    Tracks the current active module, session start time, and command execution
+    statistics for the PKMS application.
+    
+    Attributes:
+        current_module (str | None): Name of the currently active module (tasks, docs, chat, agent, settings) or None for main menu.
+        session_start (datetime): Timestamp when the session was initiated.
+        first_run (bool): True if no commands have been executed yet.
+        commands_executed (int): Count of commands executed in this session.
+    """
     def __init__(self):
+        """Initialize session state with default values."""
         self.current_module = None  # None = main menu
         self.session_start = datetime.now()
         self.first_run = True  # Track if this is first command
         self.commands_executed = 0
     
-    def set_module(self, module_name):
-        """Set current active module."""
+    def set_module(self, module_name: str) -> None:
+        """Set current active module.
+        
+        Args:
+            module_name: Name of module to activate (tasks, docs, chat, agent, settings).
+        """
         self.current_module = module_name
     
-    def reset_module(self):
-        """Return to main menu."""
+    def reset_module(self) -> None:
+        """Return to main menu by clearing current module."""
         self.current_module = None
     
-    def increment_commands(self):
-        """Increment command counter."""
+    def increment_commands(self) -> None:
+        """Increment command counter and clear first_run flag if needed."""
         self.commands_executed += 1
         if self.first_run:
             self.first_run = False
 
 class DataManager:
-    """Data manager for persisting data to JSON files."""
+    """Data manager for persisting data to JSON files.
+    
+    Provides centralized data storage operations for the PKMS application,
+    handling JSON file persistence in the data/ directory.
+    
+    Attributes:
+        data_dir (str): Absolute path to the data directory.
+    """
     def __init__(self):
+        """Initialize DataManager and ensure data directory exists."""
         self.data_dir = os.path.join(os.path.dirname(__file__), 'data')
         
         # Ensure data directory exists
         os.makedirs(self.data_dir, exist_ok=True)
 
-    def get_current_folder(self):
-        """Return the current folder name."""
+    def get_current_folder(self) -> str:
+        """Return the current folder name.
+        
+        Returns:
+            str: The current folder name (always 'tasks').
+        """
         return "tasks"
 
-    def load(self, filename):
-        """Load data from JSON file."""
+    def load(self, filename: str) -> dict | list | None:
+        """Load data from JSON file.
+        
+        Args:
+            filename: Name of the JSON file to load (e.g., 'tasks.json').
+        
+        Returns:
+            Parsed JSON data as dict or list, or None if file doesn't exist or loading fails.
+        
+        Raises:
+            Prints warning message if loading fails.
+        """
         try:
             filepath = os.path.join(self.data_dir, filename)
             if os.path.exists(filepath):
@@ -75,8 +112,16 @@ class DataManager:
             print(f"Warning: Could not load {filename}: {e}")
         return None
 
-    def save(self, filename, data):
-        """Save data to JSON file."""
+    def save(self, filename: str, data: dict | list) -> None:
+        """Save data to JSON file with pretty formatting.
+        
+        Args:
+            filename: Name of the JSON file to save (e.g., 'tasks.json').
+            data: Data to serialize to JSON (dict or list).
+        
+        Raises:
+            Prints error message if saving fails.
+        """
         try:
             filepath = os.path.join(self.data_dir, filename)
             with open(filepath, 'w') as f:
@@ -84,8 +129,27 @@ class DataManager:
         except Exception as e:
             print(f"Error: Could not save {filename}: {e}")
 
-def get_quick_stats(task_manager, document_manager):
-    """Get quick statistics for main menu."""
+def get_quick_stats(task_manager: 'TaskManager', document_manager: 'DocumentManager') -> dict:
+    """Get quick statistics for main menu display.
+    
+    Collects task and document statistics across all folders and libraries.
+    
+    Args:
+        task_manager: TaskManager instance for task statistics.
+        document_manager: DocumentManager instance for document statistics.
+    
+    Returns:
+        dict: Statistics dictionary with keys:
+            - total_tasks: Total number of tasks across all folders
+            - pending_tasks: Count of tasks with 'pending' status
+            - completed_tasks: Count of tasks with 'completed' status
+            - folder_count: Number of task folders
+            - folder_names: List of folder names
+            - pdf_count: Number of PDF documents
+            - docx_count: Number of DOCX documents
+            - txt_count: Number of TXT documents
+            - total_docs: Total document count
+    """
     stats = {}
     
     # Task stats
@@ -127,8 +191,12 @@ def get_quick_stats(task_manager, document_manager):
     
     return stats
 
-def show_main_menu(stats):
-    """Display the main menu with quick stats."""
+def show_main_menu(stats: dict) -> None:
+    """Display the main menu with quick statistics and module information.
+    
+    Args:
+        stats: Statistics dictionary from get_quick_stats() containing task and document counts.
+    """
     print("\n" + "=" * 60)
     print("Welcome to PKMS Task Manager!")
     print("=" * 60)
@@ -151,27 +219,32 @@ def show_main_menu(stats):
     print(f"  Folders:   {stats['folder_count']} ({', '.join(stats['folder_names'])})")
     
     print("\n" + "=" * 60)
-    print("\n📦 Available Modules:")
-    print("  tasks    - Task management and organization")
-    print("  docs     - Document library (PDF, DOCX, TXT)")
-    print("  chat     - AI chatbot assistant")
-    print("  agent    - AI analysis and synthesis")
-    print("  settings - Application configuration")
-    print("\n💡 Commands:")
-    print("  Type module name to enter (e.g., 'tasks', 'docs')")
-    print("  status         - Show current context")
-    print("  stats          - Show usage statistics")
-    print("  help           - Show all commands")
-    print("\n📦 Data Management:")
-    print("  export         - Export all data to ZIP")
-    print("  import         - Import data from ZIP")
-    print("  backup         - Create manual backup")
-    print("  restore        - Restore from backup")
-    print("\n  exit, quit     - Exit program")
+    print("\n\033[1mMODULES\033[0m")
+    print("  tasks      (Type 'tasks' to enter task mode)")
+    print("  docs       (Type 'docs' to enter docs mode)")
+    print("  chat       (Type 'chat' to enter interactive chat mode)")
+    
+    print("\n\033[1mPROGRAM\033[0m")
+    print("  help       Show all commands")
+    print("  status     Show current context")
+    print("  stats      Show usage statistics")
+    print("  settings   Application configuration")
+    print("  backup     Create manual backup")
+    print("  restore    Restore from backup")
+    print("  export     Export all data to ZIP")
+    print("  import     Import data from ZIP")
+    print("  exit       Exit program")
     print("=" * 60 + "\n")
 
-def help_command_main_menu(registry):
-    """Show available commands organized by module for main menu."""
+def help_command_main_menu(registry: 'CommandRegistry') -> None:
+    """Show available commands organized by module for main menu.
+    
+    Displays categorized command list including global commands, module entry points,
+    and data management commands.
+    
+    Args:
+        registry: CommandRegistry instance containing all registered commands.
+    """
     commands = registry.list_commands()
     
     # Organize commands by category
@@ -201,7 +274,7 @@ def help_command_main_menu(registry):
     print("Available Commands")
     print("=" * 60)
     
-    print("\n🌐 Global Commands:")
+    print("\n🌐 Program Commands:")
     data_mgmt_cmds = []
     for name, desc in global_cmds:
         if name == 'quit':
@@ -213,8 +286,13 @@ def help_command_main_menu(registry):
         else:
             print(f"  {name:<14} - {desc}")
     
+    # Add settings command
+    if settings_cmds:
+        for name, desc in settings_cmds:
+            print(f"  ⚙️  {name:<12} - {desc}")
+    
+    # Add data management commands to program section
     if data_mgmt_cmds:
-        print("\n📦 Data Management:")
         for name, desc in data_mgmt_cmds:
             print(f"  {name:<14} - {desc}")
     
@@ -225,28 +303,39 @@ def help_command_main_menu(registry):
     if len(task_cmds) > 5:
         print(f"  ... and {len(task_cmds) - 5} more (enter module to see all)")
     
-    print("\n📄 Document Module Commands:")
+    print("\n📚 Document Module Commands:")
     print("  (Type 'docs' to enter docs module)")
     for name, desc in doc_cmds[:5]:
-        print(f"  {name:<14} - {desc}")
+        display_name = name.replace('docs-', '')
+        print(f"  {display_name:<14} - {desc}")
     if len(doc_cmds) > 5:
         print(f"  ... and {len(doc_cmds) - 5} more (enter module to see all)")
     
     print("\n💬 Chat Module:")
     print("  chat           - Enter interactive chat mode")
-    
-    print("\n🤖 Agent Module Commands:")
-    print("  (Type 'agent' to enter agent module)")
-    for name, desc in agent_cmds:
-        print(f"  {name:<14} - {desc}")
-    
-    print("\n⚙️  Settings:")
-    print("  settings       - Manage application configuration")
+    print("\n  Slash Commands (in chat mode):")
+    print("  /home          - Return to main menu")
+    print("  /clear         - Clear conversation history")
+    print("  /context       - Switch context (general, tasks, pdfs, all)")
+    print("  /refresh       - Reload context data")
+    print("  /cost          - Show API usage and costs")
+    print("  /analyze       - Analyze tasks with AI insights")
+    print("  /synthesize    - Synthesize knowledge about a topic")
+    print("  /connections   - Show connections between documents and tasks")
+    print("  /help          - Show chat help")
     
     print("\n" + "=" * 60 + "\n")
 
-def help_command_module(registry, module_name):
-    """Show available commands for specific module."""
+def help_command_module(registry: 'CommandRegistry', module_name: str) -> None:
+    """Show available commands for specific module.
+    
+    Displays module-specific commands along with program commands available
+    within the module context.
+    
+    Args:
+        registry: CommandRegistry instance containing all registered commands.
+        module_name: Name of the module to show help for (tasks, docs, chat, agent, settings).
+    """
     commands = registry.list_commands()
     
     # Filter commands for current module
@@ -259,7 +348,6 @@ def help_command_module(registry, module_name):
         'tasks': ['tasks', 'folders', 'task'],  # tasks module includes folder commands
         'docs': ['docs', 'doc'],
         'chat': ['chat'],
-        'agent': ['agent'],
         'settings': ['settings']
     }
     
@@ -291,8 +379,17 @@ def help_command_module(registry, module_name):
     print(f"{module_name.capitalize()} Module - Available Commands")
     print("=" * 60)
     
+    # Choose appropriate icon for module
+    module_icons = {
+        'tasks': '📋',
+        'docs': '📚',
+        'chat': '💬',
+        'settings': '⚙️'
+    }
+    icon = module_icons.get(module_name, '📦')
+    
     if module_cmds:
-        print(f"\n📦 {module_name.capitalize()} Commands:")
+        print(f"\n{icon} {module_name.capitalize()} Commands:")
         for display_name, desc, _ in module_cmds:
             print(f"  {display_name:<14} - {desc}")
     else:
@@ -307,15 +404,22 @@ def help_command_module(registry, module_name):
         else:
             print(f"  {name:<14} - {desc}")
     
+    # Merge data management into program commands section
     if data_mgmt_cmds:
-        print("\n📦 Data Management:")
         for name, desc in data_mgmt_cmds:
             print(f"  {name:<14} - {desc}")
     
     print("=" * 60 + "\n")
 
-def setup_command_history():
-    """Setup readline command history if available."""
+def setup_command_history() -> Path | None:
+    """Setup readline command history if available.
+    
+    Configures readline for command history with 100-command limit and loads
+    existing history from data/.history file.
+    
+    Returns:
+        Path to history file if readline is available, None otherwise.
+    """
     if not READLINE_AVAILABLE:
         return
     
@@ -336,8 +440,12 @@ def setup_command_history():
     return history_file
 
 
-def save_command_history(history_file):
-    """Save command history to file."""
+def save_command_history(history_file: Path | None) -> None:
+    """Save command history to file.
+    
+    Args:
+        history_file: Path to history file, or None if readline unavailable.
+    """
     if not READLINE_AVAILABLE or not history_file:
         return
     
@@ -347,15 +455,25 @@ def save_command_history(history_file):
         pass  # Ignore errors saving history
 
 
-def show_random_tip():
-    """Display a random helpful tip."""
+def show_random_tip() -> None:
+    """Display a random helpful tip from the tip library."""
     tips = get_tips()
     tip = random.choice(tips)
     print(format_tip(tip))
 
 
-def find_similar_commands(command_name, registry):
-    """Find similar commands using fuzzy matching."""
+def find_similar_commands(command_name: str, registry: 'CommandRegistry') -> list[str]:
+    """Find similar commands using fuzzy matching.
+    
+    Uses difflib to find commands with similar names, useful for typo correction.
+    
+    Args:
+        command_name: The mistyped or unknown command name.
+        registry: CommandRegistry instance containing all registered commands.
+    
+    Returns:
+        List of up to 3 similar command names with similarity >= 0.6.
+    """
     all_commands = [name for name, _, _ in registry.list_commands()]
     
     # Use difflib to find close matches
@@ -363,8 +481,16 @@ def find_similar_commands(command_name, registry):
     return matches
 
 
-def log_error_to_file(error, context=""):
-    """Log error details to error log file."""
+def log_error_to_file(error: Exception, context: str = "") -> None:
+    """Log error details to error log file.
+    
+    Writes detailed error information including timestamp, context, error type,
+    and full traceback to data/error.log.
+    
+    Args:
+        error: The exception that occurred.
+        context: Optional context string (e.g., command name) for debugging.
+    """
     data_dir = Path(__file__).parent / 'data'
     error_log = data_dir / 'error.log'
     
@@ -381,12 +507,21 @@ def log_error_to_file(error, context=""):
         pass  # Silently fail if can't write to log
 
 
-def exit_command():
-    """Exit the program."""
+def exit_command() -> None:
+    """Exit the program gracefully with goodbye message."""
     print("Goodbye!")
     exit()
 
-def main():
+def main() -> None:
+    """Main entry point for PKMS Task Manager.
+    
+    Initializes all managers, sets up command registry, displays main menu,
+    and runs the main command processing loop. Handles user input, command
+    execution, error handling, and graceful shutdown.
+    
+    Raises:
+        SystemExit: If OpenAI API key is not found or invalid.
+    """
     # Check API key first
     if not check_api_key():
         sys.exit(1)
@@ -408,11 +543,11 @@ def main():
     # Initialize DocumentManager (this will register document commands)
     document_manager = DocumentManager(data_manager, registry)
     
-    # Initialize ChatManager (this will register chat commands)
-    chat_manager = ChatManager(data_manager, registry)
-    
-    # Initialize AgentManager (this will register agent commands)
+    # Initialize AgentManager first (needed by ChatManager)
     agent_manager = AgentManager(data_manager, task_manager, registry, document_manager)
+    
+    # Initialize ChatManager with agent_manager (this will register chat commands)
+    chat_manager = ChatManager(data_manager, registry, agent_manager)
     
     # Initialize BackupManager
     backup_manager = BackupManager(data_manager.data_dir)
@@ -755,7 +890,7 @@ def main():
     # Register module entry commands
     registry.register_command('tasks', cmd_tasks, 'Enter tasks module', 'global')
     registry.register_command('docs', cmd_docs, 'Enter docs module', 'global')
-    registry.register_command('agent', cmd_agent_module, 'Enter agent module', 'global')
+    # Note: 'chat' command is registered by ChatManager to enter interactive mode directly
 
     # Setup command history
     history_file = setup_command_history()
@@ -781,8 +916,6 @@ def main():
                 prompt = "docs> "
             elif session.current_module == 'chat':
                 prompt = "chat> "
-            elif session.current_module == 'agent':
-                prompt = "agent> "
             elif session.current_module == 'settings':
                 prompt = "settings> "
             else:
@@ -829,7 +962,6 @@ def main():
                         'folders': 'tasks',
                         'docs': 'docs',
                         'chat': 'chat',
-                        'agent': 'agent',
                         'settings': 'settings'
                     }
                     suggested_module = module_map.get(command_module)
@@ -853,7 +985,6 @@ def main():
                                 'folders': 'tasks',
                                 'docs': 'docs',
                                 'chat': 'chat',
-                                'agent': 'agent',
                                 'settings': 'settings'
                             }
                             suggested_module = module_map.get(command_module)

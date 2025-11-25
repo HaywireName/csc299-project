@@ -5,6 +5,13 @@ exports/
 *.backup
 *.bak
 
+# Python Virtual Environments
+venv/
+.venv/
+env/
+ENV/
+.virtualenv/
+
 # Python
 __pycache__/
 *.py[cod]
@@ -14,13 +21,14 @@ __pycache__/
 build/
 dist/
 *.egg-info/
-venv/
-env/
-ENV/
 .pytest_cache/
 .coverage
 htmlcov/
 *.log
+
+# Environment Variables
+.env
+.env.local
 
 # Operating System Files
 .DS_Store
@@ -33,3 +41,9 @@ Desktop.ini
 .idea/
 *.swp
 *.sublime-workspace
+
+# Testing artifacts (keep tests/ folder but ignore test outputs)
+test_deadline_parsing.py
+TESTING_*.md
+TEST_RESULTS.md
+WARNING_RESOLUTION.md
