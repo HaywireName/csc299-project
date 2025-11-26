@@ -283,17 +283,15 @@ pkms> agent
 
 ### `settings`
 
-**Description**: Enter settings module
+**Description**: Enter settings module to configure application.
 
-**Syntax**:
-```
-settings
-```
+**Syntax**: `settings`
 
-**Examples**:
+**Example**:
 ```bash
 pkms> settings
-# Prompt changes to: settings>
+settings> help      # Show available commands
+settings> home      # Return to main menu
 ```
 
 ---
@@ -1015,37 +1013,31 @@ agent> synthesize 1 2 3
 
 ## Settings Module Commands
 
-First enter the settings module: `pkms> settings`
+Enter settings module: `pkms> settings`
 
-### `show`
+### `help`
+Display current settings and available commands with accepted arguments.
 
-**Description**: Display current settings
+### `set <setting> <value>`
+Update a setting. Use `help` to see accepted arguments for each setting.
 
-**Syntax**:
-```
-show
-```
+**Example**: `settings> set chat_history_limit 15`
 
-**Examples**:
-```bash
-settings> show
-```
+### `reset`
+Reset all settings to defaults (requires confirmation).
 
----
+### `save <file>`
+Save current settings to a file.
 
-### `set`
+**Example**: `settings> save ~/my-settings.json`
 
-**Description**: Update a setting
+### `load <file>`
+Load settings from a file.
 
-**Syntax**:
-```
-set <key> <value>
-```
+**Example**: `settings> load ~/my-settings.json`
 
-**Examples**:
-```bash
-settings> set theme dark
-```
+### `home`
+Return to main menu.
 
 ---
 
@@ -1087,7 +1079,7 @@ The system provides helpful error messages that suggest:
 | Add document | `add ~/file.pdf` |
 | Search docs | `search "query"` |
 | Start chat | `chat` |
-| View stats | `stats` |
+| View stats | `status` |
 | Create backup | `backup` |
 | Switch module | `tasks`, `docs`, `chat`, `agent` |
 | Get help | `help` |

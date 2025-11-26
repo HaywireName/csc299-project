@@ -26,11 +26,9 @@ class BackupManager:
         """
         self.data_dir = Path(data_dir)
         self.backup_dir = self.data_dir / 'backups'
-        self.export_dir = self.data_dir.parent / 'exports'
         
         # Ensure directories exist
         self.backup_dir.mkdir(exist_ok=True)
-        self.export_dir.mkdir(exist_ok=True)
     
     def create_backup(self, auto=False, custom_name=None):
         """Create a backup ZIP of all data.

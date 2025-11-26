@@ -334,24 +334,37 @@ class SettingsManager:
         
         print("=" * 60)
         print("\nCommands:")
-        print("  show               - Display current settings")
-        print("  set <key> <value>  - Change a setting")
-        print("  reset              - Reset all to defaults")
-        print("  export <file>      - Save settings to file")
-        print("  import <file>      - Load settings from file")
-        print("  help               - Show this help")
-        print("  exit               - Return to main menu")
+        print("  set <setting> <value>  - Change a setting")
+        print("  reset                  - Reset all to defaults")
+        print("  save <file>            - Save settings to file")
+        print("  load <file>            - Load settings from file")
+        print("  help                   - Show this help")
+        print("  home                   - Return to main menu")
         print("\nAvailable settings:")
+        
+        # Define accepted arguments for each setting
+        setting_args = {
+            "openai_api_key": "<api-key starting with sk->",
+            "default_model": "gpt-4o | gpt-4o-mini | gpt-4-turbo | gpt-4 | gpt-3.5-turbo",
+            "default_folder": "<folder-name>",
+            "auto_summarize_threshold": "<number> (words)",
+            "max_summary_words": "<number> (words)",
+            "chat_history_limit": "<number> (messages)",
+            "enable_colors": "true | false | yes | no | on | off | 1 | 0"
+        }
+        
         for key in self.defaults.keys():
             desc = self.descriptions.get(key, "")
+            args = setting_args.get(key, "<value>")
             print(f"  {key:<30} - {desc}")
+            print(f"    {'':30}   Args: {args}")
         print("=" * 60 + "\n")
 
     def _settings_loop(self):
         """Settings mode interactive loop.
         
         Main loop for interactive settings mode. Handles user commands:
-        show, set, reset, export, import, help, and exit.
+        set, reset, save, load, help, and home.
         """
         while True:
             try:
@@ -363,15 +376,12 @@ class SettingsManager:
                 parts = user_input.split(maxsplit=2)
                 command = parts[0].lower()
                 
-                if command in ['exit', 'quit']:
+                if command in ['exit', 'quit', 'home']:
                     break
-                
-                elif command == 'show':
-                    self.show_settings()
                 
                 elif command == 'set':
                     if len(parts) < 3:
-                        print("Usage: set <key> <value>")
+                        print("Usage: set <setting> <value>")
                         continue
                     
                     key = parts[1]
@@ -405,9 +415,9 @@ class SettingsManager:
                     else:
                         print("Reset cancelled")
                 
-                elif command == 'export':
+                elif command == 'save':
                     if len(parts) < 2:
-                        print("Usage: export <filepath>")
+                        print("Usage: save <filepath>")
                         continue
                     
                     filepath = parts[1]
@@ -417,9 +427,9 @@ class SettingsManager:
                     else:
                         print(f"❌ Error: {message}")
                 
-                elif command == 'import':
+                elif command == 'load':
                     if len(parts) < 2:
-                        print("Usage: import <filepath>")
+                        print("Usage: load <filepath>")
                         continue
                     
                     filepath = parts[1]
@@ -460,7 +470,7 @@ class SettingsManager:
         Registers the settings command with the command registry.
         """
         self.registry.register_command('settings', self.cmd_settings, 
-                                      'Manage application settings', 'settings')
+                                      'Manage application settings', 'global')
 
     def cmd_settings(self, *args):
         """Command to enter settings mode.

@@ -50,7 +50,7 @@ docs> add ~/Documents/guide.pdf
 
 # 3. Check status
 docs> home
-pkms> stats
+pkms> status
 ```
 
 ---
@@ -563,8 +563,6 @@ PKMS Task Manager includes comprehensive API cost tracking to help you monitor a
 
 **From Main Menu**:
 ```bash
-pkms> stats
-# or
 pkms> status
 ```
 
@@ -658,14 +656,14 @@ All API usage is automatically saved to `data/cost_history.json` with:
 1. **Use Summaries Wisely**: Only summarize tasks/documents you frequently reference
 2. **Batch Operations**: Analyze multiple documents at once with `/synthesize`
 3. **Clear Context**: Use `/clear` in chat to start fresh conversations
-4. **Check Regularly**: Run `stats` command to monitor cumulative costs
+4. **Check Regularly**: Run `status` command to monitor cumulative costs
 5. **Use Mini for Simple Tasks**: Task and document summaries automatically use the cheaper gpt-4o-mini model
 
 ### Example: Monitoring Daily Usage
 
 ```bash
 # Morning: Start fresh
-pkms> stats
+pkms> status
 # Note starting all-time total
 
 # During day: Use features as needed
@@ -681,7 +679,7 @@ chat[tasks]> /analyze
 chat[tasks]> /exit
 
 # Evening: Check costs
-pkms> stats
+pkms> status
 # Review session and total costs
 ```
 
@@ -847,7 +845,7 @@ tasks> add "Task" -dl tomorrow
 
 ### Cost Management
 
-- Check costs regularly: Use `stats` or `status` command
+- Check costs regularly: Use `status` command
 - Chat uses more expensive model (gpt-4o)
 - Summaries use cheaper model (gpt-4o-mini)
 - All costs tracked by operation type

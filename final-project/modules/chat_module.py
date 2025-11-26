@@ -450,15 +450,18 @@ Be conversational and helpful. Only suggest structured tasks when it's clearly b
         Args:
             response_text: The full AI response text to parse.
         """
-        # Only process if we have task_manager
+        # Only process if we have task_manager and correct context
         if not self.task_manager:
             return
-        
+        # Restrict to tasks/all context only
+        if self.context_type not in ['tasks', 'all']:
+            print("Task creation is only allowed in tasks or all context mode.")
+            return
+
         task_suggestion = self._parse_task_suggestion(response_text)
-        
         if not task_suggestion:
             return
-        
+
         # Show the parsed suggestion
         print("\n" + "─" * 60)
         print("✨ Task Suggestion Detected:")
@@ -636,8 +639,11 @@ Be conversational and helpful. Only suggest structured tasks when it's clearly b
         """
         while True:
             try:
-                # Dynamic prompt based on context
-                prompt = f"chat[{self.context_type}]> "
+                # Dynamic prompt based on context with rainbow color
+                if hasattr(self, 'color_theme') and self.color_theme:
+                    prompt = self.color_theme.chat_prompt(self.context_type)
+                else:
+                    prompt = f"chat[{self.context_type}]> "
                 user_input = input(prompt).strip()
                 
                 if not user_input:
@@ -653,21 +659,43 @@ Be conversational and helpful. Only suggest structured tasks when it's clearly b
                         break
                     elif command == '/clear':
                         if self._clear_conversation():
-                            print("✓ Conversation history cleared.")
+                            if hasattr(self, 'color_theme') and self.color_theme:
+                                print(self.color_theme.success("Conversation history cleared."))
+                            else:
+                                print("✓ Conversation history cleared.")
                         else:
-                            print("No conversation to clear.")
+                            if hasattr(self, 'color_theme') and self.color_theme:
+                                print(self.color_theme.info("No conversation to clear."))
+                            else:
+                                print("No conversation to clear.")
                     elif command == '/context':
                         if args:
-                            print(f"Switching to {args} context...")
+                            if hasattr(self, 'color_theme') and self.color_theme:
+                                print(self.color_theme.info(f"Switching to {args} context..."))
+                            else:
+                                print(f"Switching to {args} context...")
                             if self.set_context(args):
-                                print(f"✓ Context updated. I now have access to your {args} data.")
+                                if hasattr(self, 'color_theme') and self.color_theme:
+                                    print(self.color_theme.success(f"Context updated. I now have access to your {args} data."))
+                                else:
+                                    print(f"✓ Context updated. I now have access to your {args} data.")
                         else:
-                            print("Usage: /context <type>")
-                            print("Valid types: general, tasks, docs, all")
+                            if hasattr(self, 'color_theme') and self.color_theme:
+                                print(self.color_theme.warning("Usage: /context <type>"))
+                                print(self.color_theme.info("Valid types: general, tasks, docs, all"))
+                            else:
+                                print("Usage: /context <type>")
+                                print("Valid types: general, tasks, docs, all")
                     elif command == '/refresh':
-                        print("Reloading context data...")
+                        if hasattr(self, 'color_theme') and self.color_theme:
+                            print(self.color_theme.info("Reloading context data..."))
+                        else:
+                            print("Reloading context data...")
                         self.context_data = self._build_context_message()
-                        print("✓ Context data refreshed.")
+                        if hasattr(self, 'color_theme') and self.color_theme:
+                            print(self.color_theme.success("Context data refreshed."))
+                        else:
+                            print("✓ Context data refreshed.")
                     elif command == '/cost':
                         if self.cost_tracker:
                             summary = self.cost_tracker.get_session_summary()
@@ -741,9 +769,15 @@ Be conversational and helpful. Only suggest structured tasks when it's clearly b
         self.set_context(context_type)
         
         # Show chat commands
-        print("\n" + "=" * 60)
-        print("Chat Mode - Available Commands")
-        print("=" * 60)
+        if hasattr(self, 'color_theme') and self.color_theme:
+            print("\n" + self.color_theme.chat_separator())
+            print(self.color_theme.chat_header("Chat Mode - Available Commands"))
+            print(self.color_theme.chat_separator())
+        else:
+            print("\n" + "=" * 60)
+            print("Chat Mode - Available Commands")
+            print("=" * 60)
+        
         print("\n💬 Chat Commands:")
         print("  /home            - Return to main menu")
         print("  /clear           - Clear conversation history")
@@ -755,12 +789,19 @@ Be conversational and helpful. Only suggest structured tasks when it's clearly b
         print("  /connections     - Show connections between documents and tasks")
         print("  /help            - Show this help")
         print("\nType your message to chat with AI, or use slash commands above.")
-        print("=" * 60 + "\n")
+        
+        if hasattr(self, 'color_theme') and self.color_theme:
+            print(self.color_theme.chat_separator() + "\n")
+        else:
+            print("=" * 60 + "\n")
         
         # Run chat loop
         self._chat_loop()
         
-        print("Exiting chat mode.")
+        if hasattr(self, 'color_theme') and self.color_theme:
+            print(self.color_theme.info("Exiting chat mode."))
+        else:
+            print("Exiting chat mode.")
         
         # Show session summary if any API calls were made
         if self.cost_tracker:

@@ -116,28 +116,63 @@ def confirm_action(prompt, require_yes=False):
             return False
 
 
-def format_success(message):
-    """Format a success message with emoji."""
+def format_success(message, color_theme=None):
+    """Format a success message with emoji and optional color.
+    
+    Args:
+        message: Message to format.
+        color_theme: Optional ColorTheme instance for colored output.
+    """
+    if color_theme:
+        return color_theme.success(message)
     return f"✅ {message}"
 
 
-def format_error(message):
-    """Format an error message with emoji."""
+def format_error(message, color_theme=None):
+    """Format an error message with emoji and optional color.
+    
+    Args:
+        message: Message to format.
+        color_theme: Optional ColorTheme instance for colored output.
+    """
+    if color_theme:
+        return color_theme.error(message)
     return f"❌ {message}"
 
 
-def format_warning(message):
-    """Format a warning message with emoji."""
+def format_warning(message, color_theme=None):
+    """Format a warning message with emoji and optional color.
+    
+    Args:
+        message: Message to format.
+        color_theme: Optional ColorTheme instance for colored output.
+    """
+    if color_theme:
+        return color_theme.warning(message)
     return f"⚠️  {message}"
 
 
-def format_info(message):
-    """Format an info message with emoji."""
+def format_info(message, color_theme=None):
+    """Format an info message with emoji and optional color.
+    
+    Args:
+        message: Message to format.
+        color_theme: Optional ColorTheme instance for colored output.
+    """
+    if color_theme:
+        return color_theme.info(message)
     return f"ℹ️  {message}"
 
 
-def format_tip(message):
-    """Format a tip message with emoji."""
+def format_tip(message, color_theme=None):
+    """Format a tip message with emoji and optional color.
+    
+    Args:
+        message: Message to format.
+        color_theme: Optional ColorTheme instance for colored output.
+    """
+    if color_theme:
+        return color_theme.tip(message)
     return f"💡 {message}"
 
 

@@ -691,8 +691,12 @@ class TaskManager:
                 followed by optional flags and their values.
         """
         if not args:
-            print("Error: Task title is required.")
-            print("Usage: add <title> [-p priority] [-desc description] [-dl deadline]")
+            if hasattr(self, 'color_theme') and self.color_theme:
+                print(self.color_theme.error("Task title is required."))
+                print(self.color_theme.info("Usage: add <title> [-p priority] [-desc description] [-dl deadline]"))
+            else:
+                print("Error: Task title is required.")
+                print("Usage: add <title> [-p priority] [-desc description] [-dl deadline]")
             return
         
         # Parse arguments
@@ -710,7 +714,10 @@ class TaskManager:
             i += 1
         
         if not title_parts:
-            print("Error: Task title is required.")
+            if hasattr(self, 'color_theme') and self.color_theme:
+                print(self.color_theme.error("Task title is required."))
+            else:
+                print("Error: Task title is required.")
             return
         
         title = " ".join(title_parts)
@@ -719,13 +726,19 @@ class TaskManager:
         while i < len(args):
             if args[i] in ['-dl', '--deadline']:
                 if i + 1 >= len(args):
-                    print("Error: -dl requires a date argument.")
+                    if hasattr(self, 'color_theme') and self.color_theme:
+                        print(self.color_theme.error("-dl requires a date argument."))
+                    else:
+                        print("Error: -dl requires a date argument.")
                     return
                 deadline_str = args[i + 1]
                 try:
                     deadline = self._parse_deadline(deadline_str)
                 except ValueError as e:
-                    print(f"Error: {e}")
+                    if hasattr(self, 'color_theme') and self.color_theme:
+                        print(self.color_theme.error(str(e)))
+                    else:
+                        print(f"Error: {e}")
                     return
                 i += 2
             elif args[i] in ['-desc', '--description']:
@@ -738,25 +751,47 @@ class TaskManager:
                 description = ' '.join(desc_parts)
             elif args[i] in ['-p', '--priority']:
                 if i + 1 >= len(args):
-                    print("Error: -p requires a level argument.")
+                    if hasattr(self, 'color_theme') and self.color_theme:
+                        print(self.color_theme.error("-p requires a level argument."))
+                    else:
+                        print("Error: -p requires a level argument.")
                     return
                 priority = args[i + 1].lower()
                 if priority not in ['low', 'medium', 'high']:
-                    print(f"Error: Invalid priority '{args[i + 1]}'. Must be low, medium, or high.")
+                    if hasattr(self, 'color_theme') and self.color_theme:
+                        print(self.color_theme.error(f"Invalid priority '{args[i + 1]}'. Must be low, medium, or high."))
+                    else:
+                        print(f"Error: Invalid priority '{args[i + 1]}'. Must be low, medium, or high.")
                     return
                 i += 2
             else:
-                print(f"Error: Unknown flag '{args[i]}'.")
+                if hasattr(self, 'color_theme') and self.color_theme:
+                    print(self.color_theme.error(f"Unknown flag '{args[i]}'."))
+                else:
+                    print(f"Error: Unknown flag '{args[i]}'.")
                 return
         
         task = self.add_task(title, description=description, deadline=deadline, priority=priority)
         # Task add confirmation already printed by add_task()
         if deadline:
-            print(f"  Deadline: {deadline}")
+            if hasattr(self, 'color_theme') and self.color_theme:
+                print(self.color_theme.tasks_text(f"  Deadline: {deadline}"))
+            else:
+                print(f"  Deadline: {deadline}")
         if description:
-            print(f"  Description: {description}")
+            if hasattr(self, 'color_theme') and self.color_theme:
+                print(self.color_theme.tasks_text(f"  Description: {description}"))
+            else:
+                print(f"  Description: {description}")
         if priority != "medium":
-            print(f"  Priority: {priority}")
+            if hasattr(self, 'color_theme') and self.color_theme:
+                # Use priority colors
+                if priority == "high":
+                    print(self.color_theme.priority_high(f"  Priority: {priority}"))
+                elif priority == "low":
+                    print(self.color_theme.priority_low(f"  Priority: {priority}"))
+            else:
+                print(f"  Priority: {priority}")
 
     def cmd_list(self, *args):
         """Command to list tasks.
@@ -773,7 +808,11 @@ class TaskManager:
         
         tasks = self.list_tasks()
         if not tasks:
-            print("No tasks available.")
+            # Use color theme if available
+            if hasattr(self, 'color_theme') and self.color_theme:
+                print(self.color_theme.info("No tasks available."))
+            else:
+                print("No tasks available.")
             return
 
         # Separate completed tasks from others
@@ -862,19 +901,43 @@ class TaskManager:
 
         # Print pending tasks
         if pending_tasks:
-            print(f"\n{'ID':<4} {'Title':<26} {'Description':<36} {'Deadline':<12} {'Priority':<10}")
-            print("─" * 4 + " " + "─" * 26 + " " + "─" * 36 + " " + "─" * 12 + " " + "─" * 10)
+            # Use color theme for header if available
+            if hasattr(self, 'color_theme') and self.color_theme:
+                header = self.color_theme.tasks_header(f"{'ID':<4} {'Title':<26} {'Description':<36} {'Deadline':<12} {'Priority':<10}")
+                separator = self.color_theme.tasks_text("─" * 4 + " " + "─" * 26 + " " + "─" * 36 + " " + "─" * 12 + " " + "─" * 10)
+                print(f"\n{header}")
+                print(separator)
+            else:
+                print(f"\n{'ID':<4} {'Title':<26} {'Description':<36} {'Deadline':<12} {'Priority':<10}")
+                print("─" * 4 + " " + "─" * 26 + " " + "─" * 36 + " " + "─" * 12 + " " + "─" * 10)
             
             for t in pending_tasks:
                 row = format_task_row(t, is_completed=False)
+                # Color code priority if color theme available
+                if hasattr(self, 'color_theme') and self.color_theme:
+                    if t['priority'] == 'high':
+                        row[4] = self.color_theme.priority_high(row[4])
+                    elif t['priority'] == 'medium':
+                        row[4] = self.color_theme.priority_medium(row[4])
+                    else:
+                        row[4] = self.color_theme.priority_low(row[4])
                 print(f"{row[0]:<4} {row[1]:<26} {row[2]:<36} {row[3]:<12} {row[4]:<10}")
         
         # Print completed tasks section
         if completed_tasks:
-            print(f"\n{'Completed Tasks':<90}")
-            print("─" * 90)
-            print(f"{'ID':<4} {'Title':<26} {'Description':<36} {'Deadline':<12} {'Priority':<10}")
-            print("─" * 4 + " " + "─" * 26 + " " + "─" * 36 + " " + "─" * 12 + " " + "─" * 10)
+            if hasattr(self, 'color_theme') and self.color_theme:
+                completed_header = self.color_theme.status_completed("Completed Tasks")
+                print(f"\n{completed_header:<90}")
+                print(self.color_theme.tasks_text("─" * 90))
+                header = self.color_theme.tasks_header(f"{'ID':<4} {'Title':<26} {'Description':<36} {'Deadline':<12} {'Priority':<10}")
+                separator = self.color_theme.tasks_text("─" * 4 + " " + "─" * 26 + " " + "─" * 36 + " " + "─" * 12 + " " + "─" * 10)
+                print(header)
+                print(separator)
+            else:
+                print(f"\n{'Completed Tasks':<90}")
+                print("─" * 90)
+                print(f"{'ID':<4} {'Title':<26} {'Description':<36} {'Deadline':<12} {'Priority':<10}")
+                print("─" * 4 + " " + "─" * 26 + " " + "─" * 36 + " " + "─" * 12 + " " + "─" * 10)
             
             for t in completed_tasks:
                 row = format_task_row(t, is_completed=True)
@@ -891,18 +954,30 @@ class TaskManager:
             *args: One or more task IDs (full or partial) to complete.
         """
         if not args:
-            print("Error: Task ID is required.")
+            if hasattr(self, 'color_theme') and self.color_theme:
+                print(self.color_theme.error("Task ID is required."))
+            else:
+                print("Error: Task ID is required.")
             return
         for task_id in args:
             try:
                 task = self.get_task(task_id)
                 if task:
                     self.complete_task(task_id)
-                    print(format_success(f"Task completed: {task['title']}"))
+                    if hasattr(self, 'color_theme') and self.color_theme:
+                        print(self.color_theme.success(f"Task completed: {task['title']}"))
+                    else:
+                        print(format_success(f"Task completed: {task['title']}"))
                 else:
-                    print(f"Error: Task with ID {task_id} not found.")
+                    if hasattr(self, 'color_theme') and self.color_theme:
+                        print(self.color_theme.error(f"Task with ID {task_id} not found."))
+                    else:
+                        print(f"Error: Task with ID {task_id} not found.")
             except ValueError as e:
-                print(e)
+                if hasattr(self, 'color_theme') and self.color_theme:
+                    print(self.color_theme.error(str(e)))
+                else:
+                    print(e)
 
     def cmd_remove(self, *args):
         """Command to remove a task.
@@ -913,7 +988,10 @@ class TaskManager:
             *args: One or more task IDs (full or partial) to remove.
         """
         if not args:
-            print("Error: Task ID is required.")
+            if hasattr(self, 'color_theme') and self.color_theme:
+                print(self.color_theme.error("Task ID is required."))
+            else:
+                print("Error: Task ID is required.")
             return
         for task_id in args:
             try:
@@ -921,11 +999,20 @@ class TaskManager:
                 if task:
                     task_title = task['title']
                     self.remove_task(task_id)
-                    print(format_success(f"Task removed: {task_title}"))
+                    if hasattr(self, 'color_theme') and self.color_theme:
+                        print(self.color_theme.success(f"Task removed: {task_title}"))
+                    else:
+                        print(format_success(f"Task removed: {task_title}"))
                 else:
-                    print(f"Error: Task with ID {task_id} not found.")
+                    if hasattr(self, 'color_theme') and self.color_theme:
+                        print(self.color_theme.error(f"Task with ID {task_id} not found."))
+                    else:
+                        print(f"Error: Task with ID {task_id} not found.")
             except ValueError as e:
-                print(e)
+                if hasattr(self, 'color_theme') and self.color_theme:
+                    print(self.color_theme.error(str(e)))
+                else:
+                    print(e)
 
     def cmd_edit(self, *args):
         """Command to edit a task.
@@ -936,7 +1023,10 @@ class TaskManager:
             *args: First argument is task ID, followed by flag-value pairs.
         """
         if not args:
-            print("Error: Task ID is required.")
+            if hasattr(self, 'color_theme') and self.color_theme:
+                print(self.color_theme.error("Task ID is required."))
+            else:
+                print("Error: Task ID is required.")
             return
         
         task_id = args[0]
@@ -956,23 +1046,35 @@ class TaskManager:
                 updates['description'] = ' '.join(desc_parts)
             elif args[i] == '-dl':
                 if i + 1 >= len(args):
-                    print("Error: -dl requires a date argument.")
+                    if hasattr(self, 'color_theme') and self.color_theme:
+                        print(self.color_theme.error("-dl requires a date argument."))
+                    else:
+                        print("Error: -dl requires a date argument.")
                     return
                 deadline_str = args[i + 1]
                 # Validate and normalize deadline format
                 try:
                     updates['deadline'] = self._parse_deadline(deadline_str)
                 except ValueError as e:
-                    print(f"Error: {e}")
+                    if hasattr(self, 'color_theme') and self.color_theme:
+                        print(self.color_theme.error(str(e)))
+                    else:
+                        print(f"Error: {e}")
                     return
                 i += 2
             elif args[i] == '-p':
                 if i + 1 >= len(args):
-                    print("Error: -p requires a level argument.")
+                    if hasattr(self, 'color_theme') and self.color_theme:
+                        print(self.color_theme.error("-p requires a level argument."))
+                    else:
+                        print("Error: -p requires a level argument.")
                     return
                 priority = args[i + 1].lower()
                 if priority not in ['low', 'medium', 'high', 'l', 'm', 'h']:
-                    print(f"Error: Invalid priority '{args[i + 1]}'. Must be low, medium, high, l, m, or h.")
+                    if hasattr(self, 'color_theme') and self.color_theme:
+                        print(self.color_theme.error(f"Invalid priority '{args[i + 1]}'. Must be low, medium, high, l, m, or h."))
+                    else:
+                        print(f"Error: Invalid priority '{args[i + 1]}'. Must be low, medium, high, l, m, or h.")
                     return
                 # Normalize shortcuts
                 if priority == 'l': priority = 'low'
@@ -981,21 +1083,36 @@ class TaskManager:
                 updates['priority'] = priority
                 i += 2
             else:
-                print(f"Error: Unknown flag '{args[i]}'.")
+                if hasattr(self, 'color_theme') and self.color_theme:
+                    print(self.color_theme.error(f"Unknown flag '{args[i]}'."))
+                else:
+                    print(f"Error: Unknown flag '{args[i]}'.")
                 return
         
         if not updates:
-            print("Error: No fields to update. Use -desc, -dl, or -p.")
+            if hasattr(self, 'color_theme') and self.color_theme:
+                print(self.color_theme.error("No fields to update. Use -desc, -dl, or -p."))
+            else:
+                print("Error: No fields to update. Use -desc, -dl, or -p.")
             return
         
         try:
             task = self.edit_task(task_id, **updates)
-            print(f"✓ Task updated: {task['title']}")
-            for key, value in updates.items():
-                display_key = key.capitalize()
-                print(f"  {display_key}: {value}")
+            if hasattr(self, 'color_theme') and self.color_theme:
+                print(self.color_theme.success(f"Task updated: {task['title']}"))
+                for key, value in updates.items():
+                    display_key = key.capitalize()
+                    print(self.color_theme.tasks_text(f"  {display_key}: {value}"))
+            else:
+                print(f"✓ Task updated: {task['title']}")
+                for key, value in updates.items():
+                    display_key = key.capitalize()
+                    print(f"  {display_key}: {value}")
         except ValueError as e:
-            print(f"Error: {e}")
+            if hasattr(self, 'color_theme') and self.color_theme:
+                print(self.color_theme.error(str(e)))
+            else:
+                print(f"Error: {e}")
 
     def cmd_view(self, *args):
         """Command to view task details.
@@ -1006,15 +1123,40 @@ class TaskManager:
             *args: Task ID (full or partial) to view.
         """
         if not args:
-            print("Error: Task ID is required.")
+            if hasattr(self, 'color_theme') and self.color_theme:
+                print(self.color_theme.error("Task ID is required."))
+            else:
+                print("Error: Task ID is required.")
             return
         
         task_id = args[0]
         try:
             details = self.get_task_details(task_id)
-            print(details)
+            # Colorize the output (50/50 mix: headers blue, content white)
+            if hasattr(self, 'color_theme') and self.color_theme:
+                lines = details.split('\n')
+                colored_lines = []
+                for line in lines:
+                    if line.startswith('━') or line.startswith('Task:') or line.startswith('Folder:'):
+                        colored_lines.append(self.color_theme.tasks_header(line))
+                    elif ':' in line and not line.strip().startswith('Description:') and not line.strip().startswith('Summary:'):
+                        # Color the label part only (before colon)
+                        parts = line.split(':', 1)
+                        if len(parts) == 2:
+                            colored_lines.append(self.color_theme.tasks_text(parts[0] + ':') + parts[1])
+                        else:
+                            colored_lines.append(line)
+                    else:
+                        # Keep content white (description, summary)
+                        colored_lines.append(line)
+                print('\n'.join(colored_lines))
+            else:
+                print(details)
         except ValueError as e:
-            print(f"Error: {e}")
+            if hasattr(self, 'color_theme') and self.color_theme:
+                print(self.color_theme.error(str(e)))
+            else:
+                print(f"Error: {e}")
 
     def cmd_search(self, *args):
         """Command to search tasks."""

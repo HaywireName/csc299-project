@@ -25,6 +25,7 @@ from core.errors import PKMSError, TaskNotFoundError, PDFNotFoundError, InvalidI
 from core.utils import format_error, format_success, format_warning, format_info, format_tip, get_tips, confirm_action, pluralize
 from core.backup import BackupManager
 from core.cost_tracker import CostTracker
+from core.colors import get_color_theme
 from modules.task_module import TaskManager
 from modules.docs_module import DocumentManager
 from modules.chat_module import ChatManager
@@ -227,8 +228,7 @@ def show_main_menu(stats: dict) -> None:
     
     print("\n\033[1mPROGRAM\033[0m")
     print("  help       Show all commands")
-    print("  status     Show current context")
-    print("  stats      Show usage statistics")
+    print("  status     Show program statistics")
     print("  settings   Application configuration")
     print("  backup     Create manual backup")
     print("  restore    Restore from backup")
@@ -325,7 +325,7 @@ def help_command_main_menu(registry: 'CommandRegistry') -> None:
     
     print("\n" + "=" * 60 + "\n")
 
-def help_command_module(registry: 'CommandRegistry', module_name: str) -> None:
+def help_command_module(registry: 'CommandRegistry', module_name: str, color_theme=None) -> None:
     """Show available commands for specific module.
     
     Displays module-specific commands along with program commands available
@@ -334,6 +334,7 @@ def help_command_module(registry: 'CommandRegistry', module_name: str) -> None:
     Args:
         registry: CommandRegistry instance containing all registered commands.
         module_name: Name of the module to show help for (tasks, docs, chat, agent, settings).
+        color_theme: ColorTheme instance for colored output (optional).
     """
     commands = registry.list_commands()
     
@@ -388,9 +389,30 @@ def help_command_module(registry: 'CommandRegistry', module_name: str) -> None:
     icon = module_icons.get(module_name, '📦')
     
     if module_cmds:
-        print(f"\n{icon} {module_name.capitalize()} Commands:")
+        if color_theme:
+            if module_name == 'tasks':
+                print(color_theme.tasks_header(f"\n{icon} {module_name.capitalize()} Commands:"))
+            elif module_name == 'docs':
+                print(color_theme.docs_header(f"\n{icon} {module_name.capitalize()} Commands:"))
+            elif module_name == 'chat':
+                print(color_theme.chat_header(f"\n{icon} {module_name.capitalize()} Commands:"))
+            else:
+                print(f"\n{icon} {module_name.capitalize()} Commands:")
+        else:
+            print(f"\n{icon} {module_name.capitalize()} Commands:")
+        
         for display_name, desc, _ in module_cmds:
-            print(f"  {display_name:<14} - {desc}")
+            if color_theme:
+                if module_name == 'tasks':
+                    print(color_theme.tasks_text(f"  {display_name:<14} - {desc}"))
+                elif module_name == 'docs':
+                    print(color_theme.docs_text(f"  {display_name:<14} - {desc}"))
+                elif module_name == 'chat':
+                    print(f"  {display_name:<14} - {desc}")  # Keep white for chat
+                else:
+                    print(f"  {display_name:<14} - {desc}")
+            else:
+                print(f"  {display_name:<14} - {desc}")
     else:
         print(f"\nNo commands found for {module_name} module.")
     
@@ -454,11 +476,15 @@ def save_command_history(history_file: Path | None) -> None:
         pass  # Ignore errors saving history
 
 
-def show_random_tip() -> None:
-    """Display a random helpful tip from the tip library."""
+def show_random_tip(color_theme=None) -> None:
+    """Display a random helpful tip from the tip library.
+    
+    Args:
+        color_theme: Optional ColorTheme instance for colored output.
+    """
     tips = get_tips()
     tip = random.choice(tips)
-    print(format_tip(tip))
+    print(format_tip(tip, color_theme))
 
 
 def find_similar_commands(command_name: str, registry: 'CommandRegistry') -> list[str]:
@@ -571,17 +597,27 @@ def main() -> None:
     # Initialize SettingsManager first (other modules may use settings)
     settings_manager = SettingsManager(data_manager, registry)
     
+    # Initialize color theme (depends on settings)
+    color_theme = get_color_theme(settings_manager)
+    
     # Initialize TaskManager (this will register task commands)
     task_manager = TaskManager(data_manager, registry, cost_tracker)
+    task_manager.color_theme = color_theme  # Inject color theme
     
     # Initialize DocumentManager (this will register document commands)
     document_manager = DocumentManager(data_manager, registry, cost_tracker)
+    document_manager.color_theme = color_theme  # Inject color theme
     
     # Initialize AgentManager first (needed by ChatManager)
     agent_manager = AgentManager(data_manager, task_manager, registry, document_manager, cost_tracker)
+    agent_manager.color_theme = color_theme  # Inject color theme
     
     # Initialize ChatManager with agent_manager and module managers (this will register chat commands)
     chat_manager = ChatManager(data_manager, registry, agent_manager, cost_tracker, task_manager, document_manager)
+    chat_manager.color_theme = color_theme  # Inject color theme
+    
+    # Inject color theme into settings manager
+    settings_manager.color_theme = color_theme
     
     # Initialize BackupManager
     backup_manager = BackupManager(data_manager.data_dir)
@@ -589,28 +625,33 @@ def main() -> None:
     # Perform auto-backup on startup
     created, backup_path = backup_manager.auto_backup()
     if created:
-        print(format_info(f"Auto-backup created: {backup_path.name}"))
+        print(format_info(f"Auto-backup created: {backup_path.name}", color_theme))
 
     # Command functions with closures
     def enter_module(module_name):
         """Enter a specific module and show help."""
         session.set_module(module_name)
-        print(f"\nEntering {module_name} module...")
         
-        # Show module-specific welcome message
+        # Colorize entry message based on module
         if module_name == 'tasks':
+            print(color_theme.tasks_header(f"\nEntering {module_name} module..."))
             current_folder = task_manager.data.get('current_folder', 'default')
-            print(f"Current folder: {current_folder}\n")
+            print(color_theme.tasks_text(f"Current folder: {current_folder}\n"))
         elif module_name == 'docs':
+            print(color_theme.docs_header(f"\nEntering {module_name} module..."))
             docs_count = len(document_manager.data_manager.load("docs_metadata.json") or [])
-            print(f"Document library: {docs_count} documents\n")
+            print(color_theme.docs_text(f"Document library: {docs_count} documents\n"))
         elif module_name == 'chat':
+            print(color_theme.chat_header(f"\nEntering {module_name} module..."))
             print("Type 'chat' to start interactive chat mode\n")
         elif module_name == 'agent':
+            print(f"\nEntering {module_name} module...")
             print("AI-powered analysis and synthesis tools\n")
+        else:
+            print(f"\nEntering {module_name} module...")
         
         # Show help for the module
-        help_command_module(registry, module_name)
+        help_command_module(registry, module_name, color_theme)
     
     def cmd_tasks(*args):
         """Enter tasks module."""
@@ -636,12 +677,12 @@ def main() -> None:
     def cmd_home(*args):
         """Return to main menu."""
         if session.current_module:
-            print("Returning to main menu...\n")
+            print(color_theme.info("Returning to main menu...") + "\n")
             session.reset_module()
             stats = get_quick_stats(task_manager, document_manager)
             show_main_menu(stats)
         else:
-            print("Already at main menu.")
+            print(color_theme.info("Already at main menu."))
 
     def cmd_status(*args):
         """Show current context and session information."""
@@ -670,7 +711,7 @@ def main() -> None:
     def cmd_help(*args):
         """Show help based on current context."""
         if session.current_module:
-            help_command_module(registry, session.current_module)
+            help_command_module(registry, session.current_module, color_theme)
         else:
             help_command_main_menu(registry)
     
@@ -795,15 +836,15 @@ def main() -> None:
             folders = tasks_data.get('folders', {})
             total_tasks = sum(len(tasks) for tasks in folders.values())
             
-            print(format_info(f"✓ Exporting {pluralize(total_tasks, 'task')} across {len(folders)} {pluralize(len(folders), 'folder')}"))
+            print(format_info(f"✓ Exporting {pluralize(total_tasks, 'task', color_theme)} across {len(folders)} {pluralize(len(folders), 'folder')}"))
             
             docs_data = document_manager.data_manager.load("docs_metadata.json")
             if docs_data:
                 storage_stats = backup_manager.get_storage_stats()
-                print(format_info(f"✓ Exporting {len(docs_data)} {pluralize(len(docs_data), 'document')}, {storage_stats['docs_mb']:.1f} MB"))
+                print(format_info(f"✓ Exporting {len(docs_data, color_theme)} {pluralize(len(docs_data), 'document')}, {storage_stats['docs_mb']:.1f} MB"))
             
-            print(format_info("✓ Exporting configuration"))
-            print(format_info("✓ Creating README"))
+            print(format_info("✓ Exporting configuration", color_theme))
+            print(format_info("✓ Creating README", color_theme))
             
             # Create export
             export_path = backup_manager.export_data()
@@ -811,17 +852,17 @@ def main() -> None:
             # Get file size
             size_mb = export_path.stat().st_size / (1024 * 1024)
             
-            print(format_success(f"\nExport complete: {export_path}"))
-            print(format_info(f"Size: {size_mb:.1f} MB"))
+            print(format_success(f"\nExport complete: {export_path}", color_theme))
+            print(format_info(f"Size: {size_mb:.1f} MB", color_theme))
         
         except Exception as e:
-            print(format_error(f"Export failed: {str(e)}"))
+            print(format_error(f"Export failed: {str(e, color_theme)}"))
     
     def cmd_import(*args):
         """Import data from export file."""
         if not args:
-            print(format_error("Usage: import <export_file>"))
-            print(format_info("Example: import exports/pkms_export_20251122_103000.zip"))
+            print(format_error("Usage: import <export_file>", color_theme))
+            print(format_info("Example: import exports/pkms_export_20251122_103000.zip", color_theme))
             return
         
         import_file = ' '.join(args)
@@ -833,7 +874,7 @@ def main() -> None:
                 # Try in exports directory
                 import_path = backup_manager.export_dir / import_file
                 if not import_path.exists():
-                    print(format_error(f"Import file not found: {import_file}"))
+                    print(format_error(f"Import file not found: {import_file}", color_theme))
                     return
             
             # Ask for import mode
@@ -845,12 +886,12 @@ def main() -> None:
             mode = input("\nSelect mode (merge/replace/cancel): ").strip().lower()
             
             if mode not in ['merge', 'replace']:
-                print(format_warning("Import cancelled"))
+                print(format_warning("Import cancelled", color_theme))
                 return
             
             if mode == 'replace':
                 if not confirm_action("This will replace ALL data. Continue?", require_yes=True):
-                    print(format_warning("Import cancelled"))
+                    print(format_warning("Import cancelled", color_theme))
                     return
             
             print(f"\nImporting data in '{mode}' mode...")
@@ -858,19 +899,19 @@ def main() -> None:
             # Perform import
             stats = backup_manager.import_data(str(import_path), mode)
             
-            print(format_success("\nImport complete!"))
-            print(format_info(f"Imported: {pluralize(stats['tasks'], 'task')}, {pluralize(stats['documents'], 'document')}"))
+            print(format_success("\nImport complete!", color_theme))
+            print(format_info(f"Imported: {pluralize(stats['tasks'], 'task', color_theme)}, {pluralize(stats['documents'], 'document')}"))
             if stats['settings']:
-                print(format_info("Settings imported"))
+                print(format_info("Settings imported", color_theme))
             
             # Reload managers
-            print(format_info("\nReloading data..."))
+            print(format_info("\nReloading data...", color_theme))
             task_manager.data = task_manager.data_manager.load("tasks.json") or {"folders": {"default": []}, "current_folder": "default"}
             task_manager.tasks = task_manager.data["folders"].get(task_manager.data["current_folder"], [])
             document_manager.documents = document_manager.data_manager.load("docs_metadata.json") or []
         
         except Exception as e:
-            print(format_error(f"Import failed: {str(e)}"))
+            print(format_error(f"Import failed: {str(e, color_theme)}"))
     
     def cmd_backup(*args):
         """Create manual backup with optional custom name."""
@@ -885,12 +926,12 @@ def main() -> None:
             backup_path = backup_manager.create_backup(auto=False, custom_name=custom_name)
             size_mb = backup_path.stat().st_size / (1024 * 1024)
             
-            print(format_success(f"Backup saved: {backup_path.name}"))
-            print(format_info(f"Location: {backup_path}"))
-            print(format_info(f"Size: {size_mb:.2f} MB"))
+            print(format_success(f"Backup saved: {backup_path.name}", color_theme))
+            print(format_info(f"Location: {backup_path}", color_theme))
+            print(format_info(f"Size: {size_mb:.2f} MB", color_theme))
         
         except Exception as e:
-            print(format_error(f"Backup failed: {str(e)}"))
+            print(format_error(f"Backup failed: {str(e, color_theme)}"))
     
     def cmd_restore(*args):
         """Restore from backup."""
@@ -898,7 +939,7 @@ def main() -> None:
             # List available backups
             backups = backup_manager.list_backups()
             if not backups:
-                print(format_info("No backups available"))
+                print(format_info("No backups available", color_theme))
                 return
             
             print("\nAvailable backups:")
@@ -910,7 +951,7 @@ def main() -> None:
                 print(f"    Size: {size_mb:.2f} MB")
                 print()
             
-            print(format_info("Usage: restore <backup_filename>"))
+            print(format_info("Usage: restore <backup_filename>", color_theme))
             return
         
         backup_file = args[0]
@@ -918,7 +959,7 @@ def main() -> None:
         try:
             # Confirm restoration
             if not confirm_action(f"Restore from '{backup_file}'? This will replace current data.", require_yes=True):
-                print(format_warning("Restore cancelled"))
+                print(format_warning("Restore cancelled", color_theme))
                 return
             
             print(f"\nRestoring from backup...")
@@ -926,11 +967,11 @@ def main() -> None:
             # Perform restoration
             backup_manager.restore_backup(backup_file)
             
-            print(format_success("Restore complete!"))
-            print(format_info("Please restart the program to load restored data."))
+            print(format_success("Restore complete!", color_theme))
+            print(format_info("Please restart the program to load restored data.", color_theme))
         
         except Exception as e:
-            print(format_error(f"Restore failed: {str(e)}"))
+            print(format_error(f"Restore failed: {str(e, color_theme)}"))
 
     # Create exit command with cost_tracker closure
     def cmd_exit(*args):
@@ -941,7 +982,7 @@ def main() -> None:
     registry.register_command('help', cmd_help, 'Show available commands', 'global')
     registry.register_command('home', cmd_home, 'Return to main menu', 'global')
     registry.register_command('menu', cmd_home, 'Return to main menu', 'global')
-    registry.register_command('status', cmd_stats, 'Show program statistics', 'global')
+    registry.register_command('status', cmd_status, 'Show program statistics', 'global')
     registry.register_command('backup', cmd_backup, 'Create manual backup', 'global')
     registry.register_command('restore', cmd_restore, 'Restore from backup', 'global')
     registry.register_command('exit', cmd_exit, 'Exit program', 'global')
@@ -962,24 +1003,24 @@ def main() -> None:
     # Show tip on first run
     if session.first_run:
         print()
-        show_random_tip()
+        show_random_tip(color_theme)
         print()
 
     # Main loop
     while True:
         try:
-            # Generate dynamic prompt
+            # Generate dynamic prompt with colors
             if session.current_module == 'tasks':
                 current_folder = task_manager.data.get('current_folder', 'default')
-                prompt = f"tasks[{current_folder}]> "
+                prompt = color_theme.tasks_prompt(current_folder)
             elif session.current_module == 'docs':
-                prompt = "docs> "
+                prompt = color_theme.docs_prompt()
             elif session.current_module == 'chat':
-                prompt = "chat> "
+                prompt = color_theme.chat_prompt()
             elif session.current_module == 'settings':
-                prompt = "settings> "
+                prompt = color_theme.settings_prompt()
             else:
-                prompt = "pkms> "
+                prompt = color_theme.main_prompt()
             
             user_input = input(prompt)
             command_name, args = parse_command(user_input)
@@ -1015,7 +1056,7 @@ def main() -> None:
                 
                 # At main menu (no module), only allow global commands
                 if session.current_module is None and command_module != 'global':
-                    print(format_error(f"Command '{command_name}' is not available at the main menu."))
+                    print(format_error(f"Command '{command_name}' is not available at the main menu.", color_theme))
                     # Suggest which module to enter
                     module_map = {
                         'tasks': 'tasks',
@@ -1028,13 +1069,13 @@ def main() -> None:
                     # Check if command exists in multiple modules
                     common_commands = ['add', 'list', 'remove', 'view', 'search', 'summarize']
                     if command_name in common_commands:
-                        print(format_info(f"To use this command, enter the 'tasks' or 'docs' module first."))
-                        print(format_tip(f"Type: tasks or docs"))
+                        print(format_info(f"To use this command, enter the 'tasks' or 'docs' module first.", color_theme))
+                        print(format_tip(f"Type: tasks or docs", color_theme))
                     else:
                         suggested_module = module_map.get(command_module)
                         if suggested_module:
-                            print(format_info(f"To use this command, enter the '{suggested_module}' module first."))
-                            print(format_tip(f"Type: {suggested_module}"))
+                            print(format_info(f"To use this command, enter the '{suggested_module}' module first.", color_theme))
+                            print(format_tip(f"Type: {suggested_module}", color_theme))
                     continue
                 
                 # In a module, check if command belongs to current module or is global
@@ -1043,9 +1084,9 @@ def main() -> None:
                     if session.current_module == 'tasks' and command_module in ['tasks', 'folders']:
                         pass  # Allow it
                     else:
-                        print(format_error(f"Command '{command_name}' is not available in the {session.current_module} module."))
+                        print(format_error(f"Command '{command_name}' is not available in the {session.current_module} module.", color_theme))
                         if command_module == 'global':
-                            print(format_info("This is a program command available from any module."))
+                            print(format_info("This is a program command available from any module.", color_theme))
                         else:
                             module_map = {
                                 'tasks': 'tasks',
@@ -1056,8 +1097,8 @@ def main() -> None:
                             }
                             suggested_module = module_map.get(command_module)
                             if suggested_module:
-                                print(format_info(f"This command belongs to the '{suggested_module}' module."))
-                                print(format_tip(f"Type: {suggested_module}"))
+                                print(format_info(f"This command belongs to the '{suggested_module}' module.", color_theme))
+                                print(format_tip(f"Type: {suggested_module}", color_theme))
                         continue
                 
                 try:
@@ -1068,56 +1109,56 @@ def main() -> None:
                     # Show random tip every 10 commands
                     if session.commands_executed % 10 == 0 and session.commands_executed > 0:
                         print()
-                        show_random_tip()
+                        show_random_tip(color_theme)
                         print()
                 
                 except TaskNotFoundError as e:
-                    print(format_error(str(e)))
+                    print(format_error(str(e), color_theme))
                 
                 except PDFNotFoundError as e:
-                    print(format_error(str(e)))
+                    print(format_error(str(e), color_theme))
                 
                 except InvalidInputError as e:
-                    print(format_error(str(e)))
+                    print(format_error(str(e), color_theme))
                 
                 except ValidationError as e:
-                    print(format_error(str(e)))
+                    print(format_error(str(e), color_theme))
                 
                 except APIError as e:
-                    print(format_error(str(e)))
+                    print(format_error(str(e), color_theme))
                 
                 except StorageError as e:
-                    print(format_error(str(e)))
+                    print(format_error(str(e), color_theme))
                     log_error_to_file(e, f"Command: {actual_command_name}")
                 
                 except PKMSError as e:
                     # Catch any other custom PKMS errors
-                    print(format_error(str(e)))
+                    print(format_error(str(e), color_theme))
                 
                 except KeyboardInterrupt:
                     # Ctrl+C during command execution - cancel operation
-                    print("\n" + format_warning("Operation cancelled"))
+                    print("\n" + format_warning("Operation cancelled", color_theme))
                     continue
                 
                 except Exception as e:
                     # Unexpected error - log it and show generic message
-                    print(format_error(f"An unexpected error occurred: {str(e)}"))
+                    print(format_error(f"An unexpected error occurred: {str(e, color_theme)}", color_theme))
                     log_error_to_file(e, f"Command: {actual_command_name} {' '.join(args)}")
-                    print(format_info("Error details have been logged to data/error.log"))
+                    print(format_info("Error details have been logged to data/error.log", color_theme))
             
             else:
                 # Command not found - suggest similar commands
-                print(format_error(f"Unknown command: '{command_name}'"))
+                print(format_error(f"Unknown command: '{command_name}'", color_theme))
                 
                 similar = find_similar_commands(command_name, registry)
                 if similar:
                     if len(similar) == 1:
-                        print(format_tip(f"Did you mean '{similar[0]}'?"))
+                        print(format_tip(f"Did you mean '{similar[0]}'?", color_theme))
                     else:
                         suggestions = ', '.join([f"'{cmd}'" for cmd in similar])
-                        print(format_tip(f"Did you mean: {suggestions}?"))
+                        print(format_tip(f"Did you mean: {suggestions}?", color_theme))
                 else:
-                    print(format_info("Type 'help' for available commands"))
+                    print(format_info("Type 'help' for available commands", color_theme))
         
         except KeyboardInterrupt:
             # Ctrl+C at prompt - ask to exit
