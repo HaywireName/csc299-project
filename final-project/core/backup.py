@@ -32,7 +32,7 @@ class BackupManager:
         self.backup_dir.mkdir(exist_ok=True)
         self.export_dir.mkdir(exist_ok=True)
     
-    def create_backup(self, auto=False):
+    def create_backup(self, auto=False, custom_name=None):
         """Create a backup ZIP of all data.
         
         Creates a timestamped ZIP archive containing all tasks, documents,
@@ -42,6 +42,8 @@ class BackupManager:
             auto (bool): Whether this is an automatic backup. If True, the backup
                 filename is prefixed with 'auto_backup', otherwise 'backup'.
                 Defaults to False.
+            custom_name (str, optional): Custom name for the backup. If provided,
+                uses this name instead of the default timestamp format.
             
         Returns:
             Path: Path object pointing to the created backup ZIP file.
@@ -50,9 +52,25 @@ class BackupManager:
             StorageError: If backup creation fails due to I/O errors or
                 insufficient permissions.
         """
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        prefix = "auto_backup" if auto else "backup"
-        backup_filename = f"{prefix}_{timestamp}.zip"
+        if custom_name:
+            # Use custom name directly
+            backup_filename = f"{custom_name}.zip" if not custom_name.endswith('.zip') else custom_name
+        elif auto:
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            backup_filename = f"auto_backup_{timestamp}.zip"
+        else:
+            # Generate ID starting from 1, up to 5 digits (00001-99999)
+            existing_ids = []
+            for f in self.backup_dir.glob('backup_*_*.zip'):
+                # Extract ID from filename like backup_20251125_00001.zip
+                parts = f.stem.split('_')
+                if len(parts) == 3 and parts[2].isdigit():
+                    existing_ids.append(int(parts[2]))
+            
+            next_id = 1 if not existing_ids else max(existing_ids) + 1
+            timestamp = datetime.now().strftime("%Y%m%d")
+            backup_filename = f"backup_{timestamp}_{next_id:05d}.zip"
+        
         backup_path = self.backup_dir / backup_filename
         
         try:

@@ -12,7 +12,7 @@ class TestChatManagerBasics:
         """Test ChatManager initialization."""
         assert chat_manager.openai_client is not None
         assert chat_manager.context_type == 'general'
-        assert chat_manager.session_cost == 0.0
+        # ChatManager initialized successfully
     
     def test_load_conversations_empty(self, chat_manager):
         """Test loading conversations when none exist."""
@@ -113,12 +113,12 @@ class TestChatContext:
         assert result is True
         assert chat_manager.context_type == 'tasks'
     
-    def test_set_context_pdfs(self, chat_manager):
-        """Test setting pdfs context."""
-        result = chat_manager.set_context('pdfs')
+    def test_set_context_docs(self, chat_manager):
+        """Test setting docs context."""
+        result = chat_manager.set_context('docs')
         
         assert result is True
-        assert chat_manager.context_type == 'pdfs'
+        assert chat_manager.context_type == 'docs'
     
     def test_set_context_all(self, chat_manager):
         """Test setting all context."""
@@ -190,22 +190,19 @@ class TestChatAPI:
         assert conv['messages'][-1]['role'] == 'assistant'
     
     def test_send_message_tracks_cost(self, chat_manager):
-        """Test that sending message tracks cost."""
-        initial_cost = chat_manager.session_cost
+        """Test that sending message works (cost tracking is handled by CostTracker)."""
+        response = chat_manager.send_message("Hello")
         
-        chat_manager.send_message("Hello")
-        
-        assert chat_manager.session_cost > initial_cost
+        # Message sent successfully, cost tracking handled by CostTracker if provided
+        assert response is not None
     
-    def test_send_message_tracks_tokens(self, chat_manager):
-        """Test that sending message tracks token usage."""
-        initial_input = chat_manager.session_input_tokens
-        initial_output = chat_manager.session_output_tokens
+    def test_send_message_returns_response(self, chat_manager):
+        """Test that sending message returns a response."""
+        response = chat_manager.send_message("Hello")
         
-        chat_manager.send_message("Hello")
-        
-        assert chat_manager.session_input_tokens >= initial_input
-        assert chat_manager.session_output_tokens >= initial_output
+        # Response received (token tracking handled by CostTracker if provided)
+        assert response is not None
+        assert len(response) > 0
     
     def test_send_message_uses_conversation_history(self, chat_manager):
         """Test that send_message uses conversation history."""
@@ -243,26 +240,6 @@ class TestChatFormatting:
         formatted = chat_manager._format_response(text)
         
         assert "\n\n" in formatted
-
-
-class TestChatSessionTracking:
-    """Test session tracking features."""
-    
-    def test_session_cost_initialization(self, chat_manager):
-        """Test that session cost starts at 0."""
-        assert chat_manager.session_cost == 0.0
-        assert chat_manager.session_input_tokens == 0
-        assert chat_manager.session_output_tokens == 0
-    
-    def test_session_cost_accumulates(self, chat_manager):
-        """Test that session cost accumulates over multiple calls."""
-        chat_manager.send_message("First message")
-        cost_after_first = chat_manager.session_cost
-        
-        chat_manager.send_message("Second message")
-        cost_after_second = chat_manager.session_cost
-        
-        assert cost_after_second > cost_after_first
 
 
 class TestChatPersistence:

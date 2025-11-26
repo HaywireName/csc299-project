@@ -1,6 +1,5 @@
 # User Data & Backups
 data/
-exports/
 *.zip
 *.backup
 *.bak

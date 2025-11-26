@@ -24,7 +24,7 @@ class TaskManager:
         openai_client: OpenAI API client instance.
     """
     
-    def __init__(self, data_manager, registry):
+    def __init__(self, data_manager, registry, cost_tracker=None):
         """Initialize TaskManager with dependencies.
         
         Loads task data from storage, initializes the OpenAI client for AI features,
@@ -33,9 +33,11 @@ class TaskManager:
         Args:
             data_manager: Data persistence manager instance.
             registry: Command registry instance for registering commands.
+            cost_tracker: CostTracker instance for tracking API costs (optional).
         """
         self.data_manager = data_manager
         self.registry = registry
+        self.cost_tracker = cost_tracker
         self.data = self.data_manager.load("tasks.json") or {"folders": {"default": []}, "current_folder": "default"}
         self.tasks = self.data["folders"].get(self.data["current_folder"], [])
         self.session_cost = 0.0  # Track cumulative cost for the session
@@ -173,7 +175,7 @@ class TaskManager:
         return str(len(self.tasks) + 1)
     
     def _reindex_tasks(self):
-        """Reindex all tasks with sequential IDs, completed tasks have separate numbering."""
+        """Reindex all tasks with sequential IDs, completed tasks use letters a-z."""
         # Separate pending and completed tasks
         pending = [t for t in self.tasks if t['status'] != 'completed']
         completed = [t for t in self.tasks if t['status'] == 'completed']
@@ -182,9 +184,13 @@ class TaskManager:
         for idx, task in enumerate(pending, start=1):
             task['id'] = str(idx)
         
-        # Reindex completed tasks separately (1, 2, 3...)
-        for idx, task in enumerate(completed, start=1):
-            task['id'] = str(idx)
+        # Reindex completed tasks with letters (a, b, c...)
+        for idx, task in enumerate(completed):
+            if idx < 26:  # a-z only
+                task['id'] = chr(ord('a') + idx)
+            else:
+                # If more than 26, use aa, ab, ac...
+                task['id'] = chr(ord('a') + idx // 26 - 1) + chr(ord('a') + idx % 26)
         
         # Update tasks list to maintain order
         self.tasks[:] = pending + completed
@@ -332,7 +338,16 @@ class TaskManager:
                 
                 summary = response.choices[0].message.content.strip()
                 
-                # Calculate cost (gpt-4o-mini pricing: $0.150/1M input, $0.600/1M output)
+                # Track cost with cost tracker
+                if self.cost_tracker and hasattr(response, 'usage') and response.usage:
+                    self.cost_tracker.track_api_call(
+                        operation_type='task_summary',
+                        model="gpt-4o-mini",
+                        input_tokens=response.usage.prompt_tokens,
+                        output_tokens=response.usage.completion_tokens
+                    )
+                
+                # Calculate cost for legacy session_cost tracking
                 input_tokens = response.usage.prompt_tokens
                 output_tokens = response.usage.completion_tokens
                 cost = (input_tokens * 0.150 / 1_000_000) + (output_tokens * 0.600 / 1_000_000)
@@ -410,7 +425,7 @@ class TaskManager:
         task['summary'] = summary
         self._save_data()
         
-        print(format_success(f"Summary generated ({len(summary)} characters)"))
+        print(format_success(f"Summary generated ({len(summary)} characters):"))
         return summary
 
     def add_task(self, title, description="", deadline=None, priority="medium"):
@@ -748,10 +763,14 @@ class TaskManager:
         
         Displays all tasks in the current folder in a formatted table.
         Shows AI summaries when available, completed tasks in separate section.
+        Sorted by priority (high first), then deadline (nearest first), then oldest first.
         
         Args:
             *args: Unused command arguments.
         """
+        from datetime import datetime, timedelta
+        from dateutil import parser as date_parser
+        
         tasks = self.list_tasks()
         if not tasks:
             print("No tasks available.")
@@ -760,9 +779,42 @@ class TaskManager:
         # Separate completed tasks from others
         completed_tasks = [t for t in tasks if t['status'] == 'completed']
         pending_tasks = [t for t in tasks if t['status'] != 'completed']
+        
+        # Sort pending tasks: priority (high > medium > low), then deadline (nearest first), then oldest first
+        priority_order = {'high': 0, 'medium': 1, 'low': 2}
+        
+        def task_sort_key(task):
+            # Priority value
+            priority_val = priority_order.get(task.get('priority', 'medium'), 1)
+            
+            # Deadline value (earlier dates = lower number = higher priority)
+            deadline_str = task.get('deadline')
+            if deadline_str:
+                try:
+                    deadline_date = date_parser.parse(deadline_str)
+                    deadline_val = deadline_date.timestamp()
+                except:
+                    deadline_val = float('inf')  # Invalid dates go to end
+            else:
+                deadline_val = float('inf')  # No deadline goes to end
+            
+            # Creation time (older = higher priority for same priority/deadline)
+            created_str = task.get('created', '')
+            if created_str:
+                try:
+                    created_date = date_parser.parse(created_str)
+                    created_val = created_date.timestamp()
+                except:
+                    created_val = 0
+            else:
+                created_val = 0
+            
+            return (priority_val, deadline_val, created_val)
+        
+        pending_tasks.sort(key=task_sort_key)
 
-        # Helper function to format task row
-        def format_task_row(t):
+        # Helper function to format task row with color coding
+        def format_task_row(t, is_completed=False):
             # Show actual title in Title column (truncate if needed)
             title = t['title']
             if len(title) > 25:
@@ -786,7 +838,27 @@ class TaskManager:
             else:
                 display_desc = "-"
             
-            return [t['id'], title, display_desc, t['deadline'] or "-", t['priority']]
+            # Format deadline with color coding
+            deadline_display = t['deadline'] or "-"
+            if not is_completed and t['deadline']:
+                try:
+                    deadline_date = date_parser.parse(t['deadline'])
+                    now = datetime.now()
+                    days_until = (deadline_date - now).days
+                    
+                    if days_until < 0:
+                        # Overdue - red (add spaces to maintain column width)
+                        deadline_display = f"\033[91m{t['deadline']}\033[0m" + " " * (12 - len(t['deadline']))
+                    elif days_until <= 2:
+                        # 2 days or less - yellow (add spaces to maintain column width)
+                        deadline_display = f"\033[93m{t['deadline']}\033[0m" + " " * (12 - len(t['deadline']))
+                except:
+                    pass
+            
+            # Capitalize first letter of priority
+            priority_display = t['priority'].capitalize()
+            
+            return [t['id'], title, display_desc, deadline_display, priority_display]
 
         # Print pending tasks
         if pending_tasks:
@@ -794,7 +866,7 @@ class TaskManager:
             print("─" * 4 + " " + "─" * 26 + " " + "─" * 36 + " " + "─" * 12 + " " + "─" * 10)
             
             for t in pending_tasks:
-                row = format_task_row(t)
+                row = format_task_row(t, is_completed=False)
                 print(f"{row[0]:<4} {row[1]:<26} {row[2]:<36} {row[3]:<12} {row[4]:<10}")
         
         # Print completed tasks section
@@ -805,7 +877,7 @@ class TaskManager:
             print("─" * 4 + " " + "─" * 26 + " " + "─" * 36 + " " + "─" * 12 + " " + "─" * 10)
             
             for t in completed_tasks:
-                row = format_task_row(t)
+                row = format_task_row(t, is_completed=True)
                 print(f"{row[0]:<4} {row[1]:<26} {row[2]:<36} {row[3]:<12} {row[4]:<10}")
         
         print()
@@ -813,7 +885,7 @@ class TaskManager:
     def cmd_complete(self, *args):
         """Command to complete a task.
         
-        Marks one or more tasks as completed by their IDs.
+        Marks one or more tasks as completed by their IDs without confirmation.
         
         Args:
             *args: One or more task IDs (full or partial) to complete.
@@ -835,7 +907,7 @@ class TaskManager:
     def cmd_remove(self, *args):
         """Command to remove a task.
         
-        Deletes one or more tasks by their IDs with confirmation.
+        Deletes one or more tasks by their IDs without confirmation.
         
         Args:
             *args: One or more task IDs (full or partial) to remove.
@@ -858,7 +930,7 @@ class TaskManager:
     def cmd_edit(self, *args):
         """Command to edit a task.
         
-        Modifies task fields using flags: --description, --deadline, --priority.
+        Modifies task fields using flags: -desc, -dl, -p.
         
         Args:
             *args: First argument is task ID, followed by flag-value pairs.
@@ -874,17 +946,17 @@ class TaskManager:
         updates = {}
         i = 0
         while i < len(args):
-            if args[i] == '--description':
+            if args[i] == '-desc':
                 # Collect all text until next flag or end
                 desc_parts = []
                 i += 1
-                while i < len(args) and not args[i].startswith('--'):
+                while i < len(args) and not args[i].startswith('-'):
                     desc_parts.append(args[i])
                     i += 1
                 updates['description'] = ' '.join(desc_parts)
-            elif args[i] == '--deadline':
+            elif args[i] == '-dl':
                 if i + 1 >= len(args):
-                    print("Error: --deadline requires a date argument.")
+                    print("Error: -dl requires a date argument.")
                     return
                 deadline_str = args[i + 1]
                 # Validate and normalize deadline format
@@ -894,14 +966,18 @@ class TaskManager:
                     print(f"Error: {e}")
                     return
                 i += 2
-            elif args[i] == '--priority':
+            elif args[i] == '-p':
                 if i + 1 >= len(args):
-                    print("Error: --priority requires a level argument.")
+                    print("Error: -p requires a level argument.")
                     return
                 priority = args[i + 1].lower()
-                if priority not in ['low', 'medium', 'high']:
-                    print(f"Error: Invalid priority '{args[i + 1]}'. Must be low, medium, or high.")
+                if priority not in ['low', 'medium', 'high', 'l', 'm', 'h']:
+                    print(f"Error: Invalid priority '{args[i + 1]}'. Must be low, medium, high, l, m, or h.")
                     return
+                # Normalize shortcuts
+                if priority == 'l': priority = 'low'
+                elif priority == 'm': priority = 'medium'
+                elif priority == 'h': priority = 'high'
                 updates['priority'] = priority
                 i += 2
             else:
@@ -909,7 +985,7 @@ class TaskManager:
                 return
         
         if not updates:
-            print("Error: No fields to update. Use --description, --deadline, or --priority.")
+            print("Error: No fields to update. Use -desc, -dl, or -p.")
             return
         
         try:
@@ -1128,7 +1204,7 @@ class TaskManager:
             
             print("Generating summary...")
             summary = self.summarize_task(task_id)
-            print(f"✓ Summary created: {summary}")
+            print(summary)
             
         except ValueError as e:
             print(f"Error: {e}")

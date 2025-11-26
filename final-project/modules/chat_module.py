@@ -9,24 +9,23 @@ class ChatManager:
     """Manages interactive chat sessions with OpenAI GPT models.
     
     The ChatManager provides an interactive chat interface with context-aware
-    conversations. Supports multiple context modes (general, tasks, pdfs, all)
+    conversations. Supports multiple context modes (general, tasks, docs, all)
     to provide the AI with relevant information from the user's workspace.
     Features conversation history, streaming responses, and cost tracking.
     
     Attributes:
         data_manager: Data persistence manager for chat history.
         registry: Command registry for registering chat commands.
+        agent_manager: AgentManager instance for agent slash commands.
+        cost_tracker: CostTracker instance for API cost tracking.
         openai_client: OpenAI API client instance.
         current_conversation_id: ID of the active conversation.
         conversations: List of all conversation histories.
-        context_type: Current context mode (general/tasks/pdfs/all).
+        context_type: Current context mode (general/tasks/docs/all).
         context_data: Loaded context data for the AI.
-        session_cost: Cumulative API cost for the session.
-        session_input_tokens: Total input tokens used in session.
-        session_output_tokens: Total output tokens used in session.
     """
     
-    def __init__(self, data_manager, registry, agent_manager=None):
+    def __init__(self, data_manager, registry, agent_manager=None, cost_tracker=None, task_manager=None, document_manager=None):
         """Initialize ChatManager with dependencies.
         
         Loads conversation history, initializes OpenAI client, and registers
@@ -36,18 +35,21 @@ class ChatManager:
             data_manager: Data persistence manager instance.
             registry: Command registry instance for registering commands.
             agent_manager: AgentManager instance for agent commands (optional).
+            cost_tracker: CostTracker instance for tracking API costs (optional).
+            task_manager: TaskManager instance for creating tasks from chat (optional).
+            document_manager: DocumentManager instance for adding docs from chat (optional).
         """
         self.data_manager = data_manager
         self.registry = registry
         self.agent_manager = agent_manager
+        self.cost_tracker = cost_tracker
+        self.task_manager = task_manager
+        self.document_manager = document_manager
         self.openai_client = None
         self.current_conversation_id = None
         self.conversations = []
         self.context_type = 'general'
         self.context_data = None
-        self.session_cost = 0.0
-        self.session_input_tokens = 0
-        self.session_output_tokens = 0
         self._init_openai_client()
         self._load_conversations()
         self._register_commands()
@@ -250,7 +252,7 @@ class ChatManager:
         except Exception as e:
             return f"Error loading tasks: {e}"
 
-    def _load_pdfs_context(self):
+    def _load_docs_context(self):
         """Load all documents and their summaries and format for AI context.
         
         Retrieves all documents (PDFs, DOCX, TXT) with their metadata and
@@ -299,12 +301,42 @@ class ChatManager:
         
         Constructs the system prompt for the AI by combining base instructions
         with context data (tasks, documents, or both) depending on the active
-        context mode.
+        context mode. Includes instructions for structured task/doc suggestions.
         
         Returns:
             str: Complete system message with embedded context information.
         """
-        base_message = "You are a helpful assistant for a task and knowledge management system."
+        base_message = """You are a helpful assistant for a task and knowledge management system.
+
+When users mention tasks, projects, or work items, use your reasoning to determine their intent:
+
+1. **Creating vs. Discussing**: Distinguish whether the user wants to CREATE a task or just DISCUSS it.
+   - "I need to add a task" → User wants recommendations, NOT automatic creation
+   - "Create a task for the report" → User wants a task created
+   - "I should work on the report" → Ambiguous, ask for clarification
+   - "I'm working on the report" → Status update, not a creation request
+
+2. **Ambiguity Resolution**: When references are unclear, ask for details.
+   - "a report" (indefinite article) → Ask what report they mean
+   - "the report" (definite article) → Check chat history or context for which report
+
+3. **Structured Task Suggestions**: When appropriate to suggest a task, use this EXACT format:
+   ```
+   [TASK_SUGGESTION]
+   Title: <task title, max 30 chars>
+   Description: <detailed description>
+   Deadline: <DD-MM-YYYY or leave empty>
+   Priority: <low/medium/high>
+   [/TASK_SUGGESTION]
+   ```
+
+4. **Context Awareness**: Use available chat history and workspace context (tasks/docs) to resolve references.
+   - Look for previously mentioned projects, reports, or work items
+   - Reference existing tasks or documents when suggesting new ones
+
+5. **Ask for Approval**: Always end suggestions with a question asking if the user wants to proceed.
+
+Be conversational and helpful. Only suggest structured tasks when it's clearly beneficial."""
         
         if self.context_type == 'general':
             return base_message
@@ -316,10 +348,10 @@ class ChatManager:
             context_parts.append("\nYou have access to the user's tasks:\n")
             context_parts.append(tasks_context)
         
-        if self.context_type in ['pdfs', 'all']:
-            pdfs_context = self._load_pdfs_context()
+        if self.context_type in ['docs', 'all']:
+            docs_context = self._load_docs_context()
             context_parts.append("\nYou have access to these documents:\n")
-            context_parts.append(pdfs_context)
+            context_parts.append(docs_context)
         
         return "\n".join(context_parts)
 
@@ -328,15 +360,15 @@ class ChatManager:
         
         Changes the active context mode and loads the corresponding data.
         Valid modes: general (no context), tasks (task data only),
-        pdfs (document data only), all (both tasks and documents).
+        docs (document data only), all (both tasks and documents).
         
         Args:
-            context_type: Type of context to use ('general', 'tasks', 'pdfs', 'all').
+            context_type: Type of context to use ('general', 'tasks', 'docs', 'all').
         
         Returns:
             bool: True if context was successfully set, False if invalid type.
         """
-        valid_contexts = ['general', 'tasks', 'pdfs', 'all']
+        valid_contexts = ['general', 'tasks', 'docs', 'all']
         if context_type not in valid_contexts:
             print(f"Error: Invalid context type. Valid options: {', '.join(valid_contexts)}")
             return False
@@ -344,6 +376,120 @@ class ChatManager:
         self.context_type = context_type
         self.context_data = self._build_context_message()
         return True
+
+    def _parse_task_suggestion(self, response_text):
+        """Parse a structured task suggestion from AI response.
+        
+        Extracts task details from [TASK_SUGGESTION] blocks in the AI's response.
+        
+        Args:
+            response_text: The full AI response text.
+        
+        Returns:
+            dict or None: Dictionary with 'title', 'description', 'deadline', 'priority'
+                         if a valid suggestion is found, otherwise None.
+        """
+        import re
+        
+        # Look for [TASK_SUGGESTION]...[/TASK_SUGGESTION] block
+        pattern = r'\[TASK_SUGGESTION\](.*?)\[/TASK_SUGGESTION\]'
+        match = re.search(pattern, response_text, re.DOTALL | re.IGNORECASE)
+        
+        if not match:
+            return None
+        
+        suggestion_block = match.group(1).strip()
+        
+        # Parse fields
+        task_data = {
+            'title': '',
+            'description': '',
+            'deadline': None,
+            'priority': 'medium'
+        }
+        
+        # Extract Title
+        title_match = re.search(r'Title:\s*(.+?)(?:\n|$)', suggestion_block, re.IGNORECASE)
+        if title_match:
+            task_data['title'] = title_match.group(1).strip()
+        
+        # Extract Description (handle multi-line)
+        desc_match = re.search(r'Description:\s*(.+?)(?=\n\s*(?:Deadline|Priority)|\Z)', suggestion_block, re.DOTALL | re.IGNORECASE)
+        if desc_match:
+            task_data['description'] = desc_match.group(1).strip()
+        
+        # Extract Deadline
+        deadline_match = re.search(r'Deadline:\s*(.+?)(?=\n|$)', suggestion_block, re.IGNORECASE)
+        if deadline_match:
+            deadline_text = deadline_match.group(1).strip()
+            # Check if it's a valid date format or empty (ignore other field names)
+            if deadline_text and deadline_text.lower() not in ['none', 'empty', '', 'priority:']:
+                # Make sure we didn't capture the start of next field
+                if not deadline_text.lower().startswith('priority'):
+                    task_data['deadline'] = deadline_text
+        
+        # Extract Priority
+        priority_match = re.search(r'Priority:\s*(.+?)(?:\n|$)', suggestion_block, re.IGNORECASE)
+        if priority_match:
+            priority_text = priority_match.group(1).strip().lower()
+            if priority_text in ['low', 'medium', 'high', 'l', 'm', 'h']:
+                task_data['priority'] = priority_text
+        
+        # Validate that we at least have a title
+        if not task_data['title']:
+            return None
+        
+        return task_data
+
+    def _handle_structured_suggestions(self, response_text):
+        """Detect and handle structured task suggestions in AI response.
+        
+        Parses the AI response for structured task suggestions and offers
+        the user the option to create them directly.
+        
+        Args:
+            response_text: The full AI response text to parse.
+        """
+        # Only process if we have task_manager
+        if not self.task_manager:
+            return
+        
+        task_suggestion = self._parse_task_suggestion(response_text)
+        
+        if not task_suggestion:
+            return
+        
+        # Show the parsed suggestion
+        print("\n" + "─" * 60)
+        print("✨ Task Suggestion Detected:")
+        print(f"   Title: {task_suggestion['title']}")
+        if task_suggestion['description']:
+            print(f"   Description: {task_suggestion['description']}")
+        if task_suggestion['deadline']:
+            print(f"   Deadline: {task_suggestion['deadline']}")
+        print(f"   Priority: {task_suggestion['priority']}")
+        print("─" * 60)
+        
+        # Ask for confirmation
+        try:
+            confirm = input("\nCreate this task? (yes/no): ").strip().lower()
+            
+            if confirm in ['yes', 'y']:
+                # Create the task using TaskManager
+                try:
+                    task = self.task_manager.add_task(
+                        title=task_suggestion['title'],
+                        description=task_suggestion['description'],
+                        deadline=task_suggestion['deadline'],
+                        priority=task_suggestion['priority']
+                    )
+                    print(f"✓ Task created successfully!")
+                except Exception as e:
+                    print(f"✗ Failed to create task: {e}")
+            else:
+                print("Task creation cancelled.")
+        except (EOFError, KeyboardInterrupt):
+            print("\nTask creation cancelled.")
 
     def send_message(self, message):
         """Send a message to OpenAI and get response.
@@ -403,17 +549,20 @@ class ChatManager:
             # Collect and display response
             full_response = ""
             chunk_count = 0
+            usage_tracked = False
             
             for chunk in stream:
                 # Track usage from the last chunk which contains total usage
                 if hasattr(chunk, 'usage') and chunk.usage:
-                    self.session_input_tokens += chunk.usage.prompt_tokens
-                    self.session_output_tokens += chunk.usage.completion_tokens
-                    # Calculate cost: gpt-4o pricing
-                    # Input: $2.50 per 1M tokens, Output: $10.00 per 1M tokens
-                    input_cost = (chunk.usage.prompt_tokens / 1_000_000) * 2.50
-                    output_cost = (chunk.usage.completion_tokens / 1_000_000) * 10.00
-                    self.session_cost += input_cost + output_cost
+                    # Track with cost tracker
+                    if self.cost_tracker:
+                        self.cost_tracker.track_api_call(
+                            operation_type='chat_message',
+                            model="gpt-4o",
+                            input_tokens=chunk.usage.prompt_tokens,
+                            output_tokens=chunk.usage.completion_tokens
+                        )
+                        usage_tracked = True
                 
                 if chunk.choices[0].delta.content is not None:
                     content = chunk.choices[0].delta.content
@@ -422,26 +571,43 @@ class ChatManager:
                     chunk_count += 1
             
             # If streaming didn't provide usage, estimate it
-            if chunk_count > 0 and self.session_input_tokens == 0:
+            if chunk_count > 0 and self.cost_tracker and not usage_tracked:
                 # Rough estimation: 4 chars per token
                 estimated_input = len(system_message + message) // 4
                 estimated_output = len(full_response) // 4
-                self.session_input_tokens += estimated_input
-                self.session_output_tokens += estimated_output
-                input_cost = (estimated_input / 1_000_000) * 2.50
-                output_cost = (estimated_output / 1_000_000) * 10.00
-                self.session_cost += input_cost + output_cost
+                self.cost_tracker.track_api_call(
+                    operation_type='chat_message',
+                    model="gpt-4o",
+                    input_tokens=estimated_input,
+                    output_tokens=estimated_output
+                )
+                print(f"\n⚠️  Usage data not exact. Estimated {estimated_input:,} input and {estimated_output:,} output tokens.")
             
             print()  # New line after response
             
             # Save assistant response
             self._save_message('assistant', full_response)
             
+            # Check for structured suggestions and offer to create them
+            self._handle_structured_suggestions(full_response)
+            
             return full_response
             
         except Exception as e:
             error_msg = f"Error: {str(e)}"
             print(f"\r{error_msg}")
+            
+            # Track estimated cost even on error if we sent a message
+            if self.cost_tracker and message:
+                estimated_input = len(system_message + message) // 4
+                estimated_output = 10  # Minimal for error response
+                self.cost_tracker.track_api_call(
+                    operation_type='chat_message',
+                    model="gpt-4o",
+                    input_tokens=estimated_input,
+                    output_tokens=estimated_output
+                )
+            
             return error_msg
 
     def _show_chat_help(self):
@@ -452,7 +618,7 @@ class ChatManager:
         print("\nChat Mode Commands:")
         print("  /home            - Return to main menu")
         print("  /clear           - Clear conversation history")
-        print("  /context <type>  - Switch context (general, tasks, pdfs, all)")
+        print("  /context <type>  - Switch context (general, tasks, docs, all)")
         print("  /refresh         - Reload context data")
         print("  /cost            - Show API usage and costs for this session")
         print("  /analyze         - Analyze tasks with AI insights")
@@ -497,17 +663,25 @@ class ChatManager:
                                 print(f"✓ Context updated. I now have access to your {args} data.")
                         else:
                             print("Usage: /context <type>")
-                            print("Valid types: general, tasks, pdfs, all")
+                            print("Valid types: general, tasks, docs, all")
                     elif command == '/refresh':
                         print("Reloading context data...")
                         self.context_data = self._build_context_message()
                         print("✓ Context data refreshed.")
                     elif command == '/cost':
-                        print(f"\n💰 Session API Usage:")
-                        print(f"   Input tokens:  {self.session_input_tokens:,}")
-                        print(f"   Output tokens: {self.session_output_tokens:,}")
-                        print(f"   Total cost:    ${self.session_cost:.4f}")
-                        print()
+                        if self.cost_tracker:
+                            summary = self.cost_tracker.get_session_summary()
+                            print(f"\n💰 Session API Usage:")
+                            print(f"   Total cost:    ${summary['total_cost']:.4f}")
+                            print(f"   Input tokens:  {summary['total_input_tokens']:,}")
+                            print(f"   Output tokens: {summary['total_output_tokens']:,}")
+                            if summary['by_operation']:
+                                print(f"\n   By operation:")
+                                for op_type, data in summary['by_operation'].items():
+                                    print(f"     • {op_type.replace('_', ' ').title()}: ${data['cost']:.4f} ({data['count']} calls)")
+                            print()
+                        else:
+                            print("\n⚠️  Cost tracking not available.\n")
                     elif command == '/analyze':
                         if self.agent_manager:
                             folder_arg = args.split()[1] if args and '--folder' in args else None
@@ -552,7 +726,7 @@ class ChatManager:
         Shows session summary with cost information upon exit.
         
         Args:
-            context_type: Type of context to use ('general', 'tasks', 'pdfs', 'all').
+            context_type: Type of context to use ('general', 'tasks', 'docs', 'all').
                 Defaults to 'general'.
         """
         if not self.openai_client:
@@ -573,7 +747,7 @@ class ChatManager:
         print("\n💬 Chat Commands:")
         print("  /home            - Return to main menu")
         print("  /clear           - Clear conversation history")
-        print("  /context <type>  - Switch context (general, tasks, pdfs, all)")
+        print("  /context <type>  - Switch context (general, tasks, docs, all)")
         print("  /refresh         - Reload context data")
         print("  /cost            - Show API usage and costs")
         print("  /analyze         - Analyze tasks with AI insights")
@@ -589,8 +763,11 @@ class ChatManager:
         print("Exiting chat mode.")
         
         # Show session summary if any API calls were made
-        if self.session_cost > 0:
-            print(f"\n💰 Session Summary: ${self.session_cost:.4f} ({self.session_input_tokens:,} input, {self.session_output_tokens:,} output tokens)")
+        if self.cost_tracker:
+            summary = self.cost_tracker.get_session_summary()
+            chat_data = summary.get('by_operation', {}).get('chat_message', {})
+            if chat_data and chat_data.get('cost', 0) > 0:
+                print(f"\n💰 Chat Session: ${chat_data['cost']:.4f} ({chat_data['input_tokens']:,} input, {chat_data['output_tokens']:,} output tokens)")
 
     def _register_commands(self):
         """Register chat-related commands.
@@ -602,31 +779,12 @@ class ChatManager:
     def cmd_chat(self, *args):
         """Command to enter chat mode.
         
-        Starts an interactive chat session. Supports --context flag to
-        specify the context mode.
+        Starts an interactive chat session in general context mode.
+        Use /context command within chat to switch contexts.
         
         Args:
-            *args: Command arguments. Use '--context <type>' to specify
-                context mode (general/tasks/pdfs/all).
+            *args: Command arguments (currently unused).
         """
-        context_type = 'general'
-        
-        # Parse arguments for --context flag
-        args_list = list(args)
-        if '--context' in args_list:
-            try:
-                context_index = args_list.index('--context')
-                if context_index + 1 < len(args_list):
-                    context_type = args_list[context_index + 1]
-                    if context_type not in ['general', 'tasks', 'pdfs', 'all']:
-                        print(f"Error: Invalid context type '{context_type}'")
-                        print("Valid options: general, tasks, pdfs, all")
-                        return
-                else:
-                    print("Error: --context flag requires a value")
-                    print("Valid options: general, tasks, pdfs, all")
-                    return
-            except ValueError:
-                pass
-        
-        self.start_chat(context_type)
+        # Always start with general context
+        # Users can switch context using /context command in chat mode
+        self.start_chat('general')

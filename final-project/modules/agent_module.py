@@ -20,7 +20,7 @@ class AgentManager:
         openai_client: OpenAI API client instance.
     """
     
-    def __init__(self, data_manager, task_manager, registry, document_manager=None):
+    def __init__(self, data_manager, task_manager, registry, document_manager=None, cost_tracker=None):
         """Initialize AgentManager with dependencies.
         
         Sets up agent features with access to task and document managers,
@@ -32,11 +32,13 @@ class AgentManager:
             registry: Command registry instance for registering commands.
             document_manager: DocumentManager instance for document operations.
                 Defaults to None (document features will be limited).
+            cost_tracker: CostTracker instance for tracking API costs (optional).
         """
         self.data_manager = data_manager
         self.task_manager = task_manager
         self.document_manager = document_manager
         self.registry = registry
+        self.cost_tracker = cost_tracker
         self.openai_client = None
         self._init_openai_client()
         self._register_commands()
@@ -246,6 +248,15 @@ Provide analysis in the specified JSON format."""
                 temperature=0.7,
                 response_format={"type": "json_object"}
             )
+            
+            # Track API costs
+            if self.cost_tracker and hasattr(response, 'usage') and response.usage:
+                self.cost_tracker.track_api_call(
+                    operation_type='task_analysis',
+                    model="gpt-4o",
+                    input_tokens=response.usage.prompt_tokens,
+                    output_tokens=response.usage.completion_tokens
+                )
             
             analysis_text = response.choices[0].message.content
             return json.loads(analysis_text)
@@ -744,6 +755,15 @@ Structure your response as:
                 ],
                 temperature=0.7
             )
+            
+            # Track API costs
+            if self.cost_tracker and hasattr(response, 'usage') and response.usage:
+                self.cost_tracker.track_api_call(
+                    operation_type='knowledge_synthesis',
+                    model="gpt-4o",
+                    input_tokens=response.usage.prompt_tokens,
+                    output_tokens=response.usage.completion_tokens
+                )
             
             return response.choices[0].message.content
             

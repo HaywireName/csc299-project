@@ -8,8 +8,8 @@ Complete guide to using PKMS Task Manager effectively.
 2. [Task Management Tutorial](#task-management-tutorial)
 3. [Document Library Guide](#document-library-guide)
 4. [AI Chat Assistant](#ai-chat-assistant)
-5. [AI Agents](#ai-agents)
-6. [Data Management](#data-management)
+5. [Data Management](#data-management)
+6. [API Cost Tracking](#api-cost-tracking)
 7. [Common Workflows](#common-workflows)
 8. [Tips and Tricks](#tips-and-tricks)
 9. [Best Practices](#best-practices)
@@ -108,6 +108,12 @@ tasks> folders
 tasks> list
 ```
 
+**Task List Features**:
+- **IDs**: Pending tasks use numbers (1, 2, 3...), completed tasks use letters (a, b, c...)
+- **Sorting**: Priority (High→Medium→Low), then nearest deadline, then oldest first
+- **Color Coding**: Overdue deadlines in red, deadlines within 2 days in yellow
+- **Priority Display**: Capitalized (High, Medium, Low)
+
 **View Task Details**:
 ```bash
 tasks> view 1
@@ -116,13 +122,13 @@ tasks> view 1
 **Edit Task**:
 ```bash
 # Update deadline
-tasks> edit 1 --deadline 2025-12-15
+tasks> edit 1 -dl 2025-12-15
 
 # Change priority
-tasks> edit 1 --priority high
+tasks> edit 1 -p high
 
 # Add description
-tasks> edit 1 --description "New details about the task"
+tasks> edit 1 -desc New details about the task
 ```
 
 **Complete Tasks**:
@@ -132,6 +138,9 @@ tasks> complete 1
 
 # Multiple tasks
 tasks> complete 1 2 3
+
+# Note: After completion, tasks get letter IDs (a, b, c...)
+# You can still edit or remove them: edit a, remove b
 ```
 
 **Search Tasks**:
@@ -223,6 +232,23 @@ docs> extract 1 --page 5
 ```
 
 Text is cached for faster future access.
+
+### Removing Documents
+
+**Remove Entire Document**:
+```bash
+docs> remove 1
+# Prompt: Delete document 'filename.pdf'? (yes/no):
+```
+
+**Remove Only Summary** (keep document):
+```bash
+docs> remove -s 1
+# Warning: Summaries use API costs and are saved to reduce costs
+# Prompt: Are you sure you want to remove this summary? (yes/no):
+```
+
+**Note**: Removing only the summary (`-s` flag) keeps the document but deletes the AI-generated summary. You can regenerate it later with `summarize`, but this will cost API credits again.
 
 ### Searching Documents
 
@@ -316,17 +342,17 @@ chat> chat
 
 **Chat with Task Context**:
 ```bash
-chat> chat --context tasks
+chat> /context tasks
 ```
 
 **Chat with Document Context**:
 ```bash
-chat> chat --context pdfs
+chat> /context docs
 ```
 
 **Chat with All Context**:
 ```bash
-chat> chat --context all
+chat> /context all
 ```
 
 ### In-Chat Commands
@@ -339,6 +365,66 @@ chat[tasks]> /context all   # Switch context
 chat[tasks]> /clear         # Clear history
 chat[tasks]> /cost          # Check API usage
 chat[tasks]> /exit          # Leave chat
+```
+
+### Intelligent Task Creation
+
+The AI assistant can intelligently understand your intent and suggest tasks during natural conversation:
+
+**How It Works**:
+- The AI uses reasoning to determine if you want to CREATE a task or just DISCUSS it
+- Asks for clarification when references are ambiguous ("a report" vs "the report")
+- Uses chat history and workspace context to understand what you mean
+- Offers structured task suggestions that you can approve or reject
+
+**Examples**:
+
+**Ambiguous Request - AI Asks for Details**:
+```
+chat[tasks]> I need to work on a report
+AI: Which report are you referring to? Can you provide more details about 
+what you need to accomplish?
+```
+
+**Clear Intent - AI Suggests Task**:
+```
+chat[tasks]> I should finish the quarterly analysis by Friday
+AI: Based on your message, it sounds like you want to create a task for 
+completing the quarterly analysis.
+
+[TASK_SUGGESTION]
+Title: Complete quarterly analysis
+Description: Finish quarterly analysis report
+Deadline: [appropriate Friday date]
+Priority: high
+
+Would you like me to create this task?
+
+Create this task? (yes/no): yes
+✓ Task created successfully!
+```
+
+**Request for Recommendations - AI Doesn't Auto-Create**:
+```
+chat[tasks]> I need to add a task, what do you recommend?
+AI: I'd be happy to help! What project or work are you planning? 
+Understanding your goals will help me suggest the best approach.
+```
+
+**Context-Aware Suggestions**:
+```
+chat[all]> I need to review the AI research paper before the meeting
+AI: [Checks documents and finds "AI Research Paper.pdf"]
+I see you have the "AI Research Paper" document. Would you like to 
+create a task to review it?
+
+[TASK_SUGGESTION]
+Title: Review AI research paper
+Description: Review AI Research Paper.pdf before meeting
+Deadline: [date based on context]
+Priority: high
+
+Create this task? (yes/no): 
 ```
 
 ### Example Conversations
@@ -388,55 +474,6 @@ chat[tasks]> /cost
 ```
 
 Shows API usage and costs for current session.
-
----
-
-## AI Agents
-
-### Task Analysis
-
-Analyzes your tasks and provides insights:
-
-```bash
-agent> analyze
-```
-
-**Provides**:
-- Priority recommendations
-- Overdue task warnings
-- Workload balance
-- Time management tips
-
-### Document Synthesis
-
-Combines information from multiple documents:
-
-```bash
-agent> synthesize 1 2 3
-```
-
-**Provides**:
-- Common themes
-- Key insights
-- Relationships between documents
-
-### Example Workflow: Weekly Review
-
-```bash
-# 1. Analyze tasks
-agent> analyze
-# Review priorities and adjust as needed
-
-# 2. Synthesize week's reading
-agent> synthesize 1 2 3 4
-# Get overview of research
-
-# 3. Chat for planning
-agent> home
-pkms> chat
-chat> chat --context all
-chat[all]> Based on my tasks and readings, what should I focus on next week?
-```
 
 ---
 
@@ -505,6 +542,168 @@ exports/                    # Export archives
 
 ---
 
+## API Cost Tracking
+
+PKMS Task Manager includes comprehensive API cost tracking to help you monitor and manage your OpenAI API usage across all features.
+
+### Understanding Costs
+
+**Models and Pricing**:
+- **gpt-4o-mini**: Used for task/document summaries
+  - Input: $0.150 per 1M tokens
+  - Output: $0.600 per 1M tokens
+  - Typical cost per operation: ~$0.0001-0.001
+
+- **gpt-4o**: Used for chat, task analysis, and knowledge synthesis
+  - Input: $2.50 per 1M tokens
+  - Output: $10.00 per 1M tokens
+  - Typical cost per operation: ~$0.001-0.02
+
+### Viewing Cost Statistics
+
+**From Main Menu**:
+```bash
+pkms> stats
+# or
+pkms> status
+```
+
+Shows:
+- Current session costs (broken down by operation type)
+- Previous session total
+- All-time total costs
+
+**Example Output**:
+```
+============================================================
+📊 System Statistics
+============================================================
+
+Tasks:
+  Total tasks: 42
+  Pending: 35
+  Completed: 7
+  Folders: 5
+
+Documents:
+  Total documents: 15
+  PDFs: 8
+  DOCX: 4
+  TXT: 3
+
+API Usage & Costs:
+  Current Session:
+    • Chat messages: $0.0234 (3 calls)
+    • Task summaries: $0.0012 (5 calls)
+    • Document summaries: $0.0089 (2 calls)
+    • Task analysis: $0.0156 (1 call)
+    • Knowledge synthesis: $0.0201 (1 call)
+    ─────────────────────────────────────
+    Total: $0.0692
+
+  Previous Session: $0.1234
+  All-Time Total: $2.4567
+============================================================
+```
+
+### Session Cost Summary on Exit
+
+When you exit the program, you'll see a summary:
+
+```bash
+pkms> exit
+
+============================================================
+💰 Session API Cost Summary
+============================================================
+Total API calls: 12
+Total cost: $0.0692
+
+Breakdown by operation:
+  • chat_message: $0.0234 (3 calls)
+  • task_summary: $0.0012 (5 calls)
+  • doc_summary: $0.0089 (2 calls)
+  • task_analysis: $0.0156 (1 call)
+  • knowledge_synthesis: $0.0201 (1 call)
+============================================================
+Goodbye!
+```
+
+### Cost History
+
+All API usage is automatically saved to `data/cost_history.json` with:
+- Timestamp of each session
+- Total costs per session
+- Breakdown by operation type
+- Token usage (input/output)
+
+### Tracked Operations
+
+**Task Operations**:
+- `task_summary`: AI-generated task summaries
+
+**Document Operations**:
+- `doc_summary`: AI-generated document summaries
+
+**Chat Operations**:
+- `chat_message`: Interactive chat conversations
+
+**Agent Operations** (via chat slash commands):
+- `/analyze`: Task analysis and prioritization recommendations
+- `/synthesize`: Knowledge synthesis across documents
+- `/connections`: Finding relationships between tasks and documents
+
+### Cost Management Tips
+
+1. **Use Summaries Wisely**: Only summarize tasks/documents you frequently reference
+2. **Batch Operations**: Analyze multiple documents at once with `/synthesize`
+3. **Clear Context**: Use `/clear` in chat to start fresh conversations
+4. **Check Regularly**: Run `stats` command to monitor cumulative costs
+5. **Use Mini for Simple Tasks**: Task and document summaries automatically use the cheaper gpt-4o-mini model
+
+### Example: Monitoring Daily Usage
+
+```bash
+# Morning: Start fresh
+pkms> stats
+# Note starting all-time total
+
+# During day: Use features as needed
+pkms> tasks
+tasks> summarize 1
+tasks> summarize 2
+tasks> home
+
+pkms> chat
+chat> chat --context tasks
+chat[tasks]> What should I work on today?
+chat[tasks]> /analyze
+chat[tasks]> /exit
+
+# Evening: Check costs
+pkms> stats
+# Review session and total costs
+```
+
+### Budget Planning
+
+**Typical Daily Usage**:
+- Light use (5-10 summaries, minimal chat): ~$0.01-0.05
+- Moderate use (10-20 summaries, regular chat): ~$0.05-0.15
+- Heavy use (many summaries, extensive chat/analysis): ~$0.15-0.50
+
+**Monthly Estimates**:
+- Light user: ~$0.30-1.50/month
+- Moderate user: ~$1.50-4.50/month
+- Heavy user: ~$4.50-15.00/month
+
+These are rough estimates and will vary based on:
+- Length of chat conversations
+- Complexity of documents being summarized
+- Frequency of task analysis operations
+
+---
+
 ## Common Workflows
 
 ### Daily Task Review
@@ -512,17 +711,18 @@ exports/                    # Export archives
 ```bash
 pkms> tasks
 tasks[default]> list
-# Review today's tasks
+# Review tasks (sorted by priority, then deadline)
+# Red deadlines = overdue, yellow = due soon
 
 tasks[default]> complete <completed_ids>
-# Mark completed tasks
+# Mark completed (they'll become letters: a, b, c...)
 
 tasks[default]> add "New task" -dl tomorrow
 # Add tomorrow's tasks
 
 tasks[default]> home
-pkms> stats
-# Check overall progress
+pkms> status
+# Check overall progress and API costs
 ```
 
 ### Research Session
@@ -557,20 +757,21 @@ chat[pdfs]> Compare the methodologies in my recent papers
 pkms> tasks
 tasks[default]> folder last-week
 tasks[last-week]> list
+# Completed tasks show as letters (a, b, c...)
 
 # 2. Create this week's folder
 tasks[last-week]> folder -a this-week
-tasks[this-week]> add "Monday tasks" -dl 2025-12-02
-tasks[this-week]> add "Tuesday tasks" -dl 2025-12-03
-# ... add all week's tasks
+tasks[this-week]> add "Monday: Team standup" -p high -dl 2025-12-02
+tasks[this-week]> add "Tuesday: Client presentation" -p high -dl 2025-12-03
+tasks[this-week]> add "Wednesday: Code review" -p medium -dl 2025-12-04
+# Tasks will be sorted: High priority first, then by deadline
 
-# 3. Get AI insights
-tasks[this-week]> home
-pkms> agent
-agent> analyze
+# 3. View organized list
+tasks[this-week]> list
+# Red = overdue, Yellow = due within 2 days
 
 # 4. Plan with AI
-agent> home
+tasks[this-week]> home
 pkms> chat
 chat> chat --context tasks
 chat[tasks]> Help me prioritize this week's tasks
@@ -646,13 +847,12 @@ tasks> add "Task" -dl tomorrow
 
 ### Cost Management
 
-- Check costs regularly: `cost` command in tasks/docs modules
+- Check costs regularly: Use `stats` or `status` command
 - Chat uses more expensive model (gpt-4o)
 - Summaries use cheaper model (gpt-4o-mini)
-- Typical costs:
-  - Task summary: ~$0.0001
-  - Doc summary: ~$0.001-0.01
-  - Chat message: ~$0.001-0.01
+- All costs tracked by operation type
+- Session history saved automatically
+- Exit summary shows total usage
 
 ### Performance Tips
 

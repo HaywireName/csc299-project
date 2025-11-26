@@ -43,44 +43,30 @@ docs> help
 
 ### `status`
 
-**Description**: Show current context and session information
+**Description**: Display comprehensive usage statistics and program information
 
 **Syntax**:
 ```
 status
 ```
 
-**Output**: Current module, folder (for tasks), session start time
-
-**Examples**:
-```bash
-pkms> status
-# Shows: Module: none (main menu), Session time
-```
-
----
-
-### `stats`
-
-**Description**: Display comprehensive usage statistics
-
-**Syntax**:
-```
-stats
-```
-
 **Output**:
 - Task counts (total, pending, completed, overdue)
 - Folder statistics
-- Document counts by type
-- Storage usage
-- API costs (if any)
+- Document counts by type (PDFs, DOCX, TXT)
+- Storage usage (documents, cache, data, backups)
+- API Usage & Costs (current session, previous session, all-time total)
 - Backup information
 
 **Examples**:
 ```bash
-pkms> stats
+pkms> status
 ```
+
+**Notes**: 
+- Replaces the old `stats` command
+- Shows color-coded deadline information
+- Displays API cost tracking by operation type
 
 ---
 
@@ -365,9 +351,25 @@ tasks[default]> add "Finish presentation" -p high -desc "Include Q4 results and 
 list
 ```
 
-**Output**: Table with ID, Title, Description/Summary, Deadline, Priority, Status
+**Output**: Table with ID, Title, Description/Summary, Deadline, Priority
 
-**Sorting**: Pending tasks first, then completed; sorted by deadline
+**Task IDs**:
+- Pending tasks: Numeric IDs (1, 2, 3...)
+- Completed tasks: Letter IDs (a, b, c...)
+
+**Sorting**: 
+1. Priority (High → Medium → Low)
+2. Deadline (nearest first)
+3. Creation date (oldest first)
+
+**Color Coding**:
+- 🔴 Red deadline: Overdue
+- 🟡 Yellow deadline: Due within 2 days
+- Priority: Capitalized (High, Medium, Low)
+
+**Sections**:
+- Pending tasks shown first
+- Completed tasks in separate section
 
 **Examples**:
 ```bash
@@ -408,25 +410,28 @@ tasks[default]> view 3a5f
 
 **Syntax**:
 ```
-edit <task_id> [--description <text>] [--deadline <date>] [--priority <level>]
+edit <task_id> [-desc <text>] [-dl <date>] [-p <level>]
 ```
 
 **Arguments**:
-- `task_id` (required): Task ID or partial ID
-- `--description <text>` (optional): New description
-- `--deadline <date>` (optional): New deadline
-- `--priority <level>` (optional): New priority (low/medium/high)
+- `task_id` (required): Task ID or partial ID (numeric for pending, letters for completed)
+- `-desc <text>` (optional): New description
+- `-dl <date>` (optional): New deadline
+- `-p <level>` (optional): New priority (low/medium/high or l/m/h)
 
 **Examples**:
 ```bash
 # Update deadline
-tasks[default]> edit 1 --deadline 2025-12-15
+tasks[default]> edit 1 -dl 2025-12-15
 
 # Update description
-tasks[default]> edit 2 --description "New description with more details"
+tasks[default]> edit 2 -desc New description with more details
 
 # Update multiple fields
-tasks[default]> edit 3 --priority high --deadline tomorrow
+tasks[default]> edit 3 -p high -dl tomorrow
+
+# Edit completed task
+tasks[default]> edit a -p medium
 ```
 
 **See Also**: `add`, `view`
@@ -468,14 +473,21 @@ remove <task_id>
 ```
 
 **Arguments**:
-- `task_id`: Task ID or partial ID
+- `task_id`: Task ID (numeric for pending, letters for completed)
 
 **Confirmation**: Requires "yes" to confirm deletion
 
+**ID Reindexing**: IDs are automatically reindexed after removal
+
 **Examples**:
 ```bash
+# Remove pending task
 tasks[default]> remove 1
 # Prompt: Delete task 'Task title'? (yes/no):
+
+# Remove completed task
+tasks[default]> remove a
+# Prompt: Delete task 'Completed task'? (yes/no):
 ```
 
 **See Also**: `complete`, `list`
@@ -697,27 +709,41 @@ docs> view a3d5
 
 ### `remove`
 
-**Description**: Delete a document with confirmation
+**Description**: Delete a document or its summary
 
 **Syntax**:
 ```
 remove <doc_id>
+remove -s <doc_id>
 ```
 
 **Arguments**:
 - `doc_id`: Document ID or partial ID
+- `-s` (optional): Remove only the summary (not the document)
 
-**Confirmation**: Requires "yes" to confirm deletion
+**Confirmation**: 
+- Document removal: Requires "yes" to confirm
+- Summary removal: Warns about API costs and requires confirmation
 
-**Behavior**: Deletes both file and metadata
+**Behavior**: 
+- Without `-s`: Deletes both file and metadata
+- With `-s`: Removes only the AI-generated summary
 
 **Examples**:
 ```bash
+# Remove entire document
 docs> remove 1
 # Prompt: Delete document 'filename.pdf'? (yes/no):
+
+# Remove only summary
+docs> remove -s 2
+# Warning: Summaries use API costs and are saved to reduce costs
+# Prompt: Are you sure you want to remove this summary? (yes/no):
 ```
 
-**See Also**: `list`, `view`
+**Notes**: Summaries are generated using OpenAI API and cost money, so removing them means you'll need to regenerate them later if needed.
+
+**See Also**: `list`, `view`, `summarize`
 
 ---
 
@@ -857,16 +883,16 @@ First enter the chat module: `pkms> chat`
 
 **Syntax**:
 ```
-chat [--context <type>]
+chat> /context <type>
 ```
 
 **Arguments**:
-- `--context <type>` (optional): Context type (general, tasks, pdfs, all)
+- `/context <type>` (optional): Context type (general, tasks, docs, all)
 
 **Context Types**:
 - `general`: No context loaded
 - `tasks`: Load all task data
-- `pdfs`: Load all document summaries
+- `docs`: Load all document summaries
 - `all`: Load both tasks and documents
 
 **Examples**:
@@ -875,10 +901,10 @@ chat [--context <type>]
 chat> chat
 
 # Chat with task context
-chat> chat --context tasks
+chat> /context  tasks
 
 # Chat with all context
-chat> chat --context all
+chat> /context all
 ```
 
 **In-Chat Commands**:
@@ -889,9 +915,33 @@ chat> chat --context all
 - `/cost`: Show API usage
 - `/help`: Show chat commands
 
+**Intelligent Task Creation**:
+The AI can intelligently suggest tasks based on your conversation. It will:
+- Detect when you're discussing potential tasks
+- Ask for clarification on ambiguous references ("a report" vs "the report")
+- Use chat history and workspace context to understand your intent
+- Distinguish between creation requests and general discussion
+- Offer structured task suggestions that you can approve or reject
+
+**Task Creation Examples**:
+```bash
+# AI asks for clarification
+chat> I need to work on a report
+Assistant: Which report are you referring to? Can you provide more details?
+
+# AI suggests a task based on context
+chat[tasks]> I should finish the quarterly analysis by Friday
+Assistant: [suggests task with deadline]
+Would you like me to create this task?
+
+# AI understands you want recommendations, not creation
+chat> I need to add a task, what do you recommend?
+Assistant: [provides recommendations without auto-creating]
+```
+
 **Examples**:
 ```bash
-chat> chat --context tasks
+chat> /context tasks
 chat[tasks]> What tasks are due this week?
 chat[tasks]> /context all
 chat[all]> Summarize my documents about AI
@@ -1001,12 +1051,11 @@ settings> set theme dark
 
 ## Tips
 
-### Partial ID Matching
+### ID Matching
 
-Most commands accept partial IDs. If you have a task with ID `a3d5f2b8`, you can use:
+If you have a task with ID `1`, you can use:
 ```bash
-tasks> view a3d5
-tasks> view a3
+tasks> view 1
 ```
 
 The system will match the first task that starts with your partial ID.
@@ -1037,7 +1086,7 @@ The system provides helpful error messages that suggest:
 | Complete task | `complete 1` |
 | Add document | `add ~/file.pdf` |
 | Search docs | `search "query"` |
-| Start chat | `chat --context all` |
+| Start chat | `chat` |
 | View stats | `stats` |
 | Create backup | `backup` |
 | Switch module | `tasks`, `docs`, `chat`, `agent` |

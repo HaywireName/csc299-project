@@ -51,6 +51,13 @@ def mock_openai_client():
 
 
 @pytest.fixture
+def cost_tracker(temp_data_dir):
+    """Create a CostTracker instance for testing."""
+    from core.cost_tracker import CostTracker
+    return CostTracker(str(temp_data_dir))
+
+
+@pytest.fixture
 def task_manager(data_manager, command_registry, mock_openai_client, monkeypatch):
     """Create a TaskManager with mocked OpenAI."""
     tm = TaskManager(data_manager, command_registry)

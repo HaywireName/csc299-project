@@ -24,6 +24,7 @@ from core.commands import CommandRegistry, parse_command
 from core.errors import PKMSError, TaskNotFoundError, PDFNotFoundError, InvalidInputError, APIError, StorageError, ValidationError
 from core.utils import format_error, format_success, format_warning, format_info, format_tip, get_tips, confirm_action, pluralize
 from core.backup import BackupManager
+from core.cost_tracker import CostTracker
 from modules.task_module import TaskManager
 from modules.docs_module import DocumentManager
 from modules.chat_module import ChatManager
@@ -231,8 +232,6 @@ def show_main_menu(stats: dict) -> None:
     print("  settings   Application configuration")
     print("  backup     Create manual backup")
     print("  restore    Restore from backup")
-    print("  export     Export all data to ZIP")
-    print("  import     Import data from ZIP")
     print("  exit       Exit program")
     print("=" * 60 + "\n")
 
@@ -277,11 +276,11 @@ def help_command_main_menu(registry: 'CommandRegistry') -> None:
     print("\n🌐 Program Commands:")
     data_mgmt_cmds = []
     for name, desc in global_cmds:
-        if name == 'quit':
+        if name == 'quit' or name == 'chat':
             continue
         if name == 'exit':
             print("  exit, quit     - Exit program")
-        elif name in ['export', 'import', 'backup', 'restore']:
+        elif name in ['backup', 'restore']:
             data_mgmt_cmds.append((name, desc))
         else:
             print(f"  {name:<14} - {desc}")
@@ -289,7 +288,7 @@ def help_command_main_menu(registry: 'CommandRegistry') -> None:
     # Add settings command
     if settings_cmds:
         for name, desc in settings_cmds:
-            print(f"  ⚙️  {name:<12} - {desc}")
+            print(f"  {name:<14} - {desc}")
     
     # Add data management commands to program section
     if data_mgmt_cmds:
@@ -312,7 +311,7 @@ def help_command_main_menu(registry: 'CommandRegistry') -> None:
         print(f"  ... and {len(doc_cmds) - 5} more (enter module to see all)")
     
     print("\n💬 Chat Module:")
-    print("  chat           - Enter interactive chat mode")
+    print("  (Type 'docs' to enter docs module)")
     print("\n  Slash Commands (in chat mode):")
     print("  /home          - Return to main menu")
     print("  /clear         - Clear conversation history")
@@ -507,9 +506,41 @@ def log_error_to_file(error: Exception, context: str = "") -> None:
         pass  # Silently fail if can't write to log
 
 
-def exit_command() -> None:
-    """Exit the program gracefully with goodbye message."""
-    print("Goodbye!")
+def exit_command(cost_tracker=None) -> None:
+    """Exit the program gracefully with session cost summary.
+    
+    Args:
+        cost_tracker: CostTracker instance for session summary.
+    """
+    # Show session summary if cost tracker available
+    if cost_tracker:
+        session = cost_tracker.get_session_summary()
+        
+        print("\n" + "=" * 60)
+        print("Session Summary")
+        print("=" * 60)
+        
+        if session['total_cost'] > 0:
+            print("\nAPI Usage This Session:")
+            for operation, data in session['by_operation'].items():
+                if data['count'] > 0:
+                    op_name = operation.replace('_', ' ').title()
+                    print(f"  {op_name:20} {data['count']:3} calls  ${data['cost']:.4f}")
+            print(f"\nTotal Session Cost: ${session['total_cost']:.4f}")
+            print(f"  Input tokens:  {session['total_input_tokens']:,}")
+            print(f"  Output tokens: {session['total_output_tokens']:,}")
+        else:
+            print("\nNo API calls this session - $0.00")
+        
+        print("\n" + "=" * 60)
+        print("Goodbye!")
+        print("=" * 60 + "\n")
+        
+        # Save session to history
+        cost_tracker.save_session()
+    else:
+        print("Goodbye!")
+    
     exit()
 
 def main() -> None:
@@ -533,21 +564,24 @@ def main() -> None:
     session = SessionState()
     registry = CommandRegistry()
     data_manager = DataManager()
+    
+    # Initialize cost tracker
+    cost_tracker = CostTracker(data_manager.data_dir)
 
     # Initialize SettingsManager first (other modules may use settings)
     settings_manager = SettingsManager(data_manager, registry)
     
     # Initialize TaskManager (this will register task commands)
-    task_manager = TaskManager(data_manager, registry)
+    task_manager = TaskManager(data_manager, registry, cost_tracker)
     
     # Initialize DocumentManager (this will register document commands)
-    document_manager = DocumentManager(data_manager, registry)
+    document_manager = DocumentManager(data_manager, registry, cost_tracker)
     
     # Initialize AgentManager first (needed by ChatManager)
-    agent_manager = AgentManager(data_manager, task_manager, registry, document_manager)
+    agent_manager = AgentManager(data_manager, task_manager, registry, document_manager, cost_tracker)
     
-    # Initialize ChatManager with agent_manager (this will register chat commands)
-    chat_manager = ChatManager(data_manager, registry, agent_manager)
+    # Initialize ChatManager with agent_manager and module managers (this will register chat commands)
+    chat_manager = ChatManager(data_manager, registry, agent_manager, cost_tracker, task_manager, document_manager)
     
     # Initialize BackupManager
     backup_manager = BackupManager(data_manager.data_dir)
@@ -694,14 +728,12 @@ def main() -> None:
             pdf_count = sum(1 for doc in docs_data if doc.get('extension') == '.pdf')
             docx_count = sum(1 for doc in docs_data if doc.get('extension') == '.docx')
             txt_count = sum(1 for doc in docs_data if doc.get('extension') == '.txt')
-            total_pages = sum(doc.get('page_count', 0) for doc in docs_data)
             summarized = sum(1 for doc in docs_data if doc.get('summary'))
             
             print(f"\nDocuments:")
             print(f"  Total PDFs:    {pdf_count}")
             print(f"  Total DOCX:    {docx_count}")
             print(f"  Total TXT:     {txt_count}")
-            print(f"  Total Pages:   {total_pages}")
             print(f"  Summaries:     {summarized}")
         else:
             print(f"\nDocuments:")
@@ -715,11 +747,32 @@ def main() -> None:
         print(f"  Data:       {storage_stats['json_mb']:.2f} MB")
         print(f"  Backups:    {storage_stats['backups_mb']:.2f} MB")
         print(f"  Total:      {storage_stats['total_mb']:.2f} MB")
+        print("  " + "-" * 56)
         
-        # API cost statistics (from task manager session)
-        if hasattr(task_manager, 'session_cost') and task_manager.session_cost > 0:
-            print(f"\nAPI Usage (This Session):")
-            print(f"  Estimated Cost: ${task_manager.session_cost:.4f}")
+        # API Usage & Costs
+        print(f"\nAPI Usage & Costs:")
+        session = cost_tracker.get_session_summary()
+        if session['total_cost'] > 0:
+            print("  Current Session:")
+            for operation, data in session['by_operation'].items():
+                if data['count'] > 0:
+                    # Format operation name nicely
+                    op_name = operation.replace('_', ' ').title()
+                    print(f"    {op_name:20} {data['count']:3} calls  ${data['cost']:.4f}")
+            print(f"    {'Session Total:':20} {'-':>3}        ${session['total_cost']:.4f}")
+        else:
+            print("  Current Session: No API calls yet")
+        
+        # Previous session cost
+        prev_cost = cost_tracker.get_previous_session_cost()
+        if prev_cost > 0:
+            print(f"  Previous Session: ${prev_cost:.4f}")
+        
+        # All-time total
+        all_time = cost_tracker.get_all_time_cost()
+        session_count = cost_tracker.get_session_count()
+        if session_count > 0:
+            print(f"  All-Time Total:   ${all_time:.4f} ({session_count} sessions)")
         
         # Backup statistics
         backups = backup_manager.list_backups()
@@ -820,11 +873,16 @@ def main() -> None:
             print(format_error(f"Import failed: {str(e)}"))
     
     def cmd_backup(*args):
-        """Create manual backup."""
+        """Create manual backup with optional custom name."""
+        custom_name = None
+        if args:
+            # Join all args to support names with spaces
+            custom_name = ' '.join(args)
+        
         print("\nCreating backup...")
         
         try:
-            backup_path = backup_manager.create_backup(auto=False)
+            backup_path = backup_manager.create_backup(auto=False, custom_name=custom_name)
             size_mb = backup_path.stat().st_size / (1024 * 1024)
             
             print(format_success(f"Backup saved: {backup_path.name}"))
@@ -874,18 +932,20 @@ def main() -> None:
         except Exception as e:
             print(format_error(f"Restore failed: {str(e)}"))
 
+    # Create exit command with cost_tracker closure
+    def cmd_exit(*args):
+        """Exit program with session summary."""
+        exit_command(cost_tracker)
+    
     # Register global commands
     registry.register_command('help', cmd_help, 'Show available commands', 'global')
     registry.register_command('home', cmd_home, 'Return to main menu', 'global')
     registry.register_command('menu', cmd_home, 'Return to main menu', 'global')
-    registry.register_command('status', cmd_status, 'Show current context', 'global')
-    registry.register_command('stats', cmd_stats, 'Show usage statistics', 'global')
-    registry.register_command('export', cmd_export, 'Export all data to ZIP', 'global')
-    registry.register_command('import', cmd_import, 'Import data from ZIP', 'global')
+    registry.register_command('status', cmd_stats, 'Show program statistics', 'global')
     registry.register_command('backup', cmd_backup, 'Create manual backup', 'global')
     registry.register_command('restore', cmd_restore, 'Restore from backup', 'global')
-    registry.register_command('exit', exit_command, 'Exit program', 'global')
-    registry.register_command('quit', exit_command, 'Exit program', 'global')
+    registry.register_command('exit', cmd_exit, 'Exit program', 'global')
+    registry.register_command('quit', cmd_exit, 'Exit program', 'global')
     
     # Register module entry commands
     registry.register_command('tasks', cmd_tasks, 'Enter tasks module', 'global')
@@ -964,10 +1024,17 @@ def main() -> None:
                         'chat': 'chat',
                         'settings': 'settings'
                     }
-                    suggested_module = module_map.get(command_module)
-                    if suggested_module:
-                        print(format_info(f"To use this command, enter the '{suggested_module}' module first."))
-                        print(format_tip(f"Type: {suggested_module}"))
+                    
+                    # Check if command exists in multiple modules
+                    common_commands = ['add', 'list', 'remove', 'view', 'search', 'summarize']
+                    if command_name in common_commands:
+                        print(format_info(f"To use this command, enter the 'tasks' or 'docs' module first."))
+                        print(format_tip(f"Type: tasks or docs"))
+                    else:
+                        suggested_module = module_map.get(command_module)
+                        if suggested_module:
+                            print(format_info(f"To use this command, enter the '{suggested_module}' module first."))
+                            print(format_tip(f"Type: {suggested_module}"))
                     continue
                 
                 # In a module, check if command belongs to current module or is global
@@ -1058,20 +1125,34 @@ def main() -> None:
                 print()
                 response = input("Exit program? (y/n): ").strip().lower()
                 if response in ['y', 'yes']:
+                    # Show session summary before exit
+                    session = cost_tracker.get_session_summary()
+                    if session['total_cost'] > 0:
+                        print(f"\nSession Cost: ${session['total_cost']:.4f}")
                     print("Goodbye!")
+                    cost_tracker.save_session()
                     break
             except (KeyboardInterrupt, EOFError):
                 # Double Ctrl+C or Ctrl+D - exit immediately
-                print("\nGoodbye!")
+                print("\n\nInterrupted!")
+                session = cost_tracker.get_session_summary()
+                if session['total_cost'] > 0:
+                    print(f"Session Cost: ${session['total_cost']:.4f}")
+                print("Goodbye!")
+                cost_tracker.save_session()
                 break
         
         except EOFError:
             # Ctrl+D - exit immediately
             print("\nGoodbye!")
+            cost_tracker.save_session()
             break
     
     # Save command history before exiting
     save_command_history(history_file)
+    
+    # Final save of cost tracking (in case exit wasn't through command)
+    cost_tracker.save_session()
 
 if __name__ == '__main__':
     main()

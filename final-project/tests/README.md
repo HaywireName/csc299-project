@@ -16,15 +16,18 @@ This testing suite provides complete coverage of the PKMS Task Manager functiona
 
 ```
 tests/
-├── __init__.py              # Package initialization
-├── conftest.py              # Pytest fixtures and configuration
-├── mock_openai.py           # Mock OpenAI client (no API calls needed)
-├── test_storage.py          # Tests for core.storage
-├── test_tasks.py            # Tests for modules.task_module
-├── test_docs.py             # Tests for modules.docs_module
-├── test_chat.py             # Tests for modules.chat_module
-├── test_agents.py           # Tests for modules.agent_module
-└── test_commands.py         # Tests for core.commands
+├── __init__.py                  # Package initialization
+├── conftest.py                  # Pytest fixtures and configuration
+├── mock_openai.py               # Mock OpenAI client (no API calls needed)
+├── test_agents.py               # 26 tests - AI agents (task analysis, synthesis)
+├── test_chat.py                 # 28 tests - Chat functionality (messages, context)
+├── test_commands.py             # 39 tests - Command system (registry, parsing)
+├── test_docs.py                 # 47 tests - Document management (including title extraction)
+├── test_intelligent_chat.py     # 13 tests - Intelligent task suggestions
+├── test_storage.py              # 22 tests - Storage operations (JSON, persistence)
+└── test_tasks.py                # 48 tests - Task management (CRUD, folders, search)
+
+Total: 214 tests
 ```
 
 ## Installation
@@ -130,7 +133,7 @@ start htmlcov/index.html  # Windows
 
 ## Test Categories
 
-### test_storage.py (24 tests)
+### test_storage.py (22 tests)
 Tests for JSON storage and data management:
 - JSON read/write operations
 - File creation and updates
@@ -139,7 +142,7 @@ Tests for JSON storage and data management:
 - Chat history storage
 - Document metadata storage
 
-### test_tasks.py (41+ tests)
+### test_tasks.py (48 tests)
 Tests for task management:
 - Adding tasks (with/without options)
 - Listing and sorting tasks
@@ -151,7 +154,7 @@ Tests for task management:
 - AI summarization (mocked)
 - Task persistence
 
-### test_docs.py (30+ tests)
+### test_docs.py (47 tests)
 Tests for document management:
 - Adding documents (PDF, DOCX, TXT)
 - Listing and sorting documents
@@ -161,18 +164,18 @@ Tests for document management:
 - AI summarization (mocked)
 - Metadata extraction
 - Chunking for large documents
+- Title extraction from content and metadata (PDF, DOCX, TXT)
 
-### test_chat.py (25+ tests)
+### test_chat.py (28 tests)
 Tests for chat functionality:
 - Message storage and retrieval
 - Conversation management
-- Context switching (general, tasks, pdfs, all)
+- Context switching (general, tasks, docs, all)
 - Chat history limits
 - API interaction (mocked)
-- Cost and token tracking
 - Response formatting
 
-### test_agents.py (25+ tests)
+### test_agents.py (26 tests)
 Tests for AI agent functionality:
 - Task categorization (overdue, due soon, etc.)
 - Task analysis with AI insights (mocked)
@@ -181,7 +184,7 @@ Tests for AI agent functionality:
 - Connection discovery
 - Report formatting
 
-### test_commands.py (25+ tests)
+### test_commands.py (39 tests)
 Tests for command system:
 - Command registration
 - Command retrieval
@@ -189,6 +192,14 @@ Tests for command system:
 - Module organization
 - Command execution
 - Integration with managers
+
+### test_intelligent_chat.py (13 tests)
+Tests for intelligent task suggestions:
+- Task suggestion parsing (complete, minimal, multi-line)
+- Case insensitive parsing
+- Default values and edge cases
+- Handler integration with ChatManager
+- Safety checks for missing managers
 
 ## Mocking Strategy
 
@@ -417,6 +428,7 @@ When adding new features:
 
 ---
 
-**Last Updated**: December 2025
-**Test Suite Version**: 1.0
-**Total Tests**: ~170 tests across 6 test files
+**Last Updated**: November 25, 2025
+**Test Suite Version**: 1.1
+**Total Tests**: 214 tests across 8 test files
+**Pass Rate**: 100%

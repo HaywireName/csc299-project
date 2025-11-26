@@ -32,7 +32,7 @@ class DocumentManager:
         openai_client: OpenAI API client instance.
     """
     
-    def __init__(self, data_manager, registry):
+    def __init__(self, data_manager, registry, cost_tracker=None):
         """Initialize DocumentManager with dependencies.
         
         Sets up directory structure for document storage, loads existing
@@ -41,9 +41,11 @@ class DocumentManager:
         Args:
             data_manager: Data persistence manager instance.
             registry: Command registry instance for registering commands.
+            cost_tracker: CostTracker instance for tracking API costs (optional).
         """
         self.data_manager = data_manager
         self.registry = registry
+        self.cost_tracker = cost_tracker
         self.data_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'data', 'docs')
         self.pdfs_dir = os.path.join(self.data_dir, 'pdfs')
         self.docx_dir = os.path.join(self.data_dir, 'docx')
@@ -753,7 +755,16 @@ class DocumentManager:
                 
                 summary = response.choices[0].message.content.strip()
                 
-                # Calculate cost (gpt-4o-mini pricing: $0.150/1M input, $0.600/1M output)
+                # Track cost with cost tracker
+                if self.cost_tracker and hasattr(response, 'usage') and response.usage:
+                    self.cost_tracker.track_api_call(
+                        operation_type='doc_summary',
+                        model="gpt-4o-mini",
+                        input_tokens=response.usage.prompt_tokens,
+                        output_tokens=response.usage.completion_tokens
+                    )
+                
+                # Calculate cost for return value and legacy tracking
                 input_tokens = response.usage.prompt_tokens
                 output_tokens = response.usage.completion_tokens
                 cost = (input_tokens * 0.150 / 1_000_000) + (output_tokens * 0.600 / 1_000_000)
@@ -874,8 +885,12 @@ class DocumentManager:
     def cmd_docs_add(self, *args):
         """Command to add a document."""
         if not args:
-            print("Error: File path is required.")
-            print("Usage: add <filepath>")
+            if hasattr(self, 'color_theme') and self.color_theme:
+                print(self.color_theme.error("File path is required."))
+                print(self.color_theme.info("Usage: add <filepath>"))
+            else:
+                print("Error: File path is required.")
+                print("Usage: add <filepath>")
             return
         
         filepath = " ".join(args)
@@ -884,36 +899,66 @@ class DocumentManager:
         filepath = os.path.expanduser(filepath)
         
         try:
-            print("Processing file...")
+            if hasattr(self, 'color_theme') and self.color_theme:
+                print(self.color_theme.info("Processing file..."))
+            else:
+                print("Processing file...")
             doc = self.add_doc(filepath)
             
             ext_name = doc['extension'].upper().replace('.', '')
-            print(f"✓ {ext_name} added: {doc['filename']} #{doc['id']}")
-            print(f"  Title: {doc['title']}")
-            if doc['extension'] == '.pdf':
-                print(f"  Pages: {doc['page_count']}")
-            elif doc['extension'] == '.docx':
-                print(f"  Paragraphs: {doc['page_count']}")
-            else:  # .txt
-                print(f"  Lines: {doc['page_count']}")
-            print(f"  Stored: {os.path.dirname(doc['filepath'])}")
+            if hasattr(self, 'color_theme') and self.color_theme:
+                print(self.color_theme.success(f"{ext_name} added: {doc['filename']} #{doc['id']}"))
+                print(self.color_theme.docs_text(f"  Title: {doc['title']}"))
+                if doc['extension'] == '.pdf':
+                    print(self.color_theme.docs_text(f"  Pages: {doc['page_count']}"))
+                elif doc['extension'] == '.docx':
+                    print(self.color_theme.docs_text(f"  Paragraphs: {doc['page_count']}"))
+                else:  # .txt
+                    print(self.color_theme.docs_text(f"  Lines: {doc['page_count']}"))
+                print(self.color_theme.docs_text(f"  Stored: {os.path.dirname(doc['filepath'])}"))
+            else:
+                print(f"✓ {ext_name} added: {doc['filename']} #{doc['id']}")
+                print(f"  Title: {doc['title']}")
+                if doc['extension'] == '.pdf':
+                    print(f"  Pages: {doc['page_count']}")
+                elif doc['extension'] == '.docx':
+                    print(f"  Paragraphs: {doc['page_count']}")
+                else:  # .txt
+                    print(f"  Lines: {doc['page_count']}")
+                print(f"  Stored: {os.path.dirname(doc['filepath'])}")
             
         except FileNotFoundError as e:
-            print(f"Error: {e}")
+            if hasattr(self, 'color_theme') and self.color_theme:
+                print(self.color_theme.error(str(e)))
+            else:
+                print(f"Error: {e}")
         except ValueError as e:
-            print(f"Error: {e}")
+            if hasattr(self, 'color_theme') and self.color_theme:
+                print(self.color_theme.error(str(e)))
+            else:
+                print(f"Error: {e}")
         except PermissionError as e:
-            print(f"Error: {e}")
+            if hasattr(self, 'color_theme') and self.color_theme:
+                print(self.color_theme.error(str(e)))
+            else:
+                print(f"Error: {e}")
         except Exception as e:
-            print(f"Error: {e}")
+            if hasattr(self, 'color_theme') and self.color_theme:
+                print(self.color_theme.error(str(e)))
+            else:
+                print(f"Error: {e}")
 
     def cmd_docs_list(self, *args):
         """Command to list all documents."""
         docs = self.list_docs()
         
         if not docs:
-            print("No documents available.")
-            print("Tip: Use 'add <filepath>' to add documents.")
+            if hasattr(self, 'color_theme') and self.color_theme:
+                print(self.color_theme.info("No documents available."))
+                print(self.color_theme.tip("Use 'add <filepath>' to add documents."))
+            else:
+                print("No documents available.")
+                print("Tip: Use 'add <filepath>' to add documents.")
             return
         
         table = []
@@ -943,28 +988,108 @@ class DocumentManager:
         separator = ["─" * 2, "─" * 40, "─" * 4, "─" * 12, "─" * 10, "─" * 7]
         table.insert(0, separator)
         
-        print(tabulate(table, headers=headers, tablefmt="plain"))
+        if hasattr(self, 'color_theme') and self.color_theme:
+            # Color the headers
+            colored_headers = [self.color_theme.docs_header(h) for h in headers]
+            colored_separator = [self.color_theme.docs_text(s) for s in separator]
+            colored_table = [colored_separator]
+            for row in table[1:]:  # Skip the separator we already added
+                colored_table.append([self.color_theme.docs_text(str(cell)) for cell in row])
+            print(tabulate(colored_table, headers=colored_headers, tablefmt="plain"))
+        else:
+            print(tabulate(table, headers=headers, tablefmt="plain"))
 
     def cmd_docs_remove(self, *args):
-        """Command to remove a document."""
+        """Command to remove a document or its summary.
+        
+        Usage: 
+            remove <doc_id>     - Remove entire document
+            remove -s <doc_id>  - Remove only the summary
+        """
         if not args:
-            print("Error: Document ID is required.")
-            print("Usage: remove <doc_id>")
+            if hasattr(self, 'color_theme') and self.color_theme:
+                print(self.color_theme.error("Document ID is required."))
+                print(self.color_theme.info("Usage: remove <doc_id> or remove -s <doc_id>"))
+            else:
+                print("Error: Document ID is required.")
+                print("Usage: remove <doc_id> or remove -s <doc_id>")
             return
         
-        doc_id = args[0]
+        # Check for -s flag
+        remove_summary_only = False
+        if args[0] == '-s':
+            if len(args) < 2:
+                if hasattr(self, 'color_theme') and self.color_theme:
+                    print(self.color_theme.error("Document ID required after -s flag."))
+                    print(self.color_theme.info("Usage: remove -s <doc_id>"))
+                else:
+                    print("Error: Document ID required after -s flag.")
+                    print("Usage: remove -s <doc_id>")
+                return
+            remove_summary_only = True
+            doc_id = args[1]
+        else:
+            doc_id = args[0]
         
         try:
-            self.remove_doc(doc_id)
+            if remove_summary_only:
+                # Remove only the summary
+                doc = self.get_doc(doc_id)
+                if not doc:
+                    if hasattr(self, 'color_theme') and self.color_theme:
+                        print(self.color_theme.error(f"Document with ID {doc_id} not found."))
+                    else:
+                        print(f"Error: Document with ID {doc_id} not found.")
+                    return
+                
+                if not doc.get('summary'):
+                    if hasattr(self, 'color_theme') and self.color_theme:
+                        print(self.color_theme.info(f"Document '{doc['title']}' has no summary to remove."))
+                    else:
+                        print(f"Document '{doc['title']}' has no summary to remove.")
+                    return
+                
+                # Confirm with user
+                if hasattr(self, 'color_theme') and self.color_theme:
+                    print(self.color_theme.docs_text(f"\\nDocument: {doc['title']}"))
+                    print(self.color_theme.warning("Summaries are generated using API costs and saved to reduce future costs."))
+                else:
+                    print(f"\\nDocument: {doc['title']}")
+                    print("⚠️  Summaries are generated using API costs and saved to reduce future costs.")
+                response = input("Are you sure you want to remove this summary? (yes/no): ").strip().lower()
+                
+                if response in ['yes', 'y']:
+                    doc['summary'] = None
+                    doc['summary_word_count'] = None
+                    self.data_manager.save('docs_metadata.json', self.documents)
+                    if hasattr(self, 'color_theme') and self.color_theme:
+                        print(self.color_theme.success(f"Summary removed from document: {doc['title']}"))
+                    else:
+                        print(f"✓ Summary removed from document: {doc['title']}")
+                else:
+                    if hasattr(self, 'color_theme') and self.color_theme:
+                        print(self.color_theme.info("Summary removal cancelled."))
+                    else:
+                        print("Summary removal cancelled.")
+            else:
+                # Remove entire document
+                self.remove_doc(doc_id)
                 
         except Exception as e:
-            print(f"Error: {e}")
+            if hasattr(self, 'color_theme') and self.color_theme:
+                print(self.color_theme.error(str(e)))
+            else:
+                print(f"Error: {e}")
 
     def cmd_docs_view(self, *args):
         """Command to view document details."""
         if not args:
-            print("Error: Document ID is required.")
-            print("Usage: view <doc_id>")
+            if hasattr(self, 'color_theme') and self.color_theme:
+                print(self.color_theme.error("Document ID is required."))
+                print(self.color_theme.info("Usage: view <doc_id>"))
+            else:
+                print("Error: Document ID is required.")
+                print("Usage: view <doc_id>")
             return
         
         doc_id = args[0]
@@ -972,7 +1097,10 @@ class DocumentManager:
         try:
             doc = self.get_doc(doc_id)
             if not doc:
-                print(f"Error: Document with ID {doc_id} not found.")
+                if hasattr(self, 'color_theme') and self.color_theme:
+                    print(self.color_theme.error(f"Document with ID {doc_id} not found."))
+                else:
+                    print(f"Error: Document with ID {doc_id} not found.")
                 return
             
             # Update last accessed
@@ -990,41 +1118,78 @@ class DocumentManager:
             else:  # .txt
                 page_label = "Lines"
             
-            print("━" * 40)
-            print(f"Document: {doc['title']}")
-            print("━" * 40)
-            print(f"ID:       {doc['id']}")
-            print(f"Filename: {doc['filename']}")
-            print(f"Type:     {doc['extension'].upper().replace('.', '')}")
-            print(f"{page_label}: {doc['page_count']}")
-            print(f"Added:    {added_date}")
-            print(f"Accessed: {accessed_date}")
+            # Use colors for headers and labels (50/50 mix)
+            if hasattr(self, 'color_theme') and self.color_theme:
+                print(self.color_theme.docs_header("━" * 40))
+                print(self.color_theme.docs_header(f"Document: {doc['title']}"))
+                print(self.color_theme.docs_header("━" * 40))
+                print(self.color_theme.docs_text(f"ID:       ") + doc['id'])
+                print(self.color_theme.docs_text(f"Filename: ") + doc['filename'])
+                print(self.color_theme.docs_text(f"Type:     ") + doc['extension'].upper().replace('.', ''))
+                print(self.color_theme.docs_text(f"{page_label}:{' ' * (9 - len(page_label))}") + str(doc['page_count']))
+                print(self.color_theme.docs_text(f"Added:    ") + added_date)
+                print(self.color_theme.docs_text(f"Accessed: ") + accessed_date)
+            else:
+                print("━" * 40)
+                print(f"Document: {doc['title']}")
+                print("━" * 40)
+                print(f"ID:       {doc['id']}")
+                print(f"Filename: {doc['filename']}")
+                print(f"Type:     {doc['extension'].upper().replace('.', '')}")
+                print(f"{page_label}:{' ' * (9 - len(page_label))}{doc['page_count']}")
+                print(f"Added:    {added_date}")
+                print(f"Accessed: {accessed_date}")
             
             # Show summary if exists
             if doc.get('summary'):
-                print("\n" + "━" * 40)
-                print("Summary:")
-                print("━" * 40)
-                print(doc['summary'])
-                if doc.get('summary_word_count'):
-                    print(f"\n({doc['summary_word_count']} words)")
+                if hasattr(self, 'color_theme') and self.color_theme:
+                    print("\n" + self.color_theme.docs_header("━" * 40))
+                    print(self.color_theme.docs_header("Summary:"))
+                    print(self.color_theme.docs_header("━" * 40))
+                    print(doc['summary'])  # Keep summary content white
+                    if doc.get('summary_word_count'):
+                        print(f"\n({doc['summary_word_count']} words)")
+                else:
+                    print("\n" + "━" * 40)
+                    print("Summary:")
+                    print("━" * 40)
+                    print(doc['summary'])
+                    if doc.get('summary_word_count'):
+                        print(f"\n({doc['summary_word_count']} words)")
             else:
-                print("\nNo summary available.")
-                print("Tip: Use 'docs-summarize {}' to generate a summary.".format(doc_id))
+                if hasattr(self, 'color_theme') and self.color_theme:
+                    print("\n" + self.color_theme.info("No summary available."))
+                    print(self.color_theme.tip(f"Use 'docs-summarize {doc_id}' to generate a summary."))
+                else:
+                    print("\nNo summary available.")
+                    print("Tip: Use 'docs-summarize {}' to generate a summary.".format(doc_id))
             
-            print("\n" + "━" * 40)
-            print("Preview:")
-            print("━" * 40)
+            # Preview section
+            if hasattr(self, 'color_theme') and self.color_theme:
+                print("\n" + self.color_theme.docs_header("━" * 40))
+                print(self.color_theme.docs_header("Preview:"))
+                print(self.color_theme.docs_header("━" * 40))
+            else:
+                print("\n" + "━" * 40)
+                print("Preview:")
+                print("━" * 40)
+            
             preview = doc.get('preview', '')
             if preview:
-                print(preview[:500])
+                print(preview[:500])  # Keep preview content white
             else:
                 print("(No preview available)")
             
-            print("━" * 40)
+            if hasattr(self, 'color_theme') and self.color_theme:
+                print(self.color_theme.docs_header("━" * 40))
+            else:
+                print("━" * 40)
             
         except Exception as e:
-            print(f"Error: {e}")
+            if hasattr(self, 'color_theme') and self.color_theme:
+                print(self.color_theme.error(str(e)))
+            else:
+                print(f"Error: {e}")
 
     def cmd_docs_extract(self, *args):
         """Command to extract text from a document."""

@@ -1,4 +1,4 @@
-# ARCHITECTURE.md - Technical Documentation
+  # ARCHITECTURE.md - Technical Documentation
 
 Complete technical documentation for PKMS Task Manager.
 
@@ -9,8 +9,9 @@ Complete technical documentation for PKMS Task Manager.
 3. [Module Descriptions](#module-descriptions)
 4. [Data Structures](#data-structures)
 5. [API Integration](#api-integration)
-6. [Code Organization](#code-organization)
-7. [Extension Points](#extension-points)
+6. [Cost Tracking System](#cost-tracking-system)
+7. [Code Organization](#code-organization)
+8. [Extension Points](#extension-points)
 
 ---
 
@@ -22,7 +23,7 @@ PKMS Task Manager is a modular, terminal-based application built with Python 3.9
 
 - **Main Loop** (`main.py`): User interface and command routing
 - **Modules** (`modules/`): Feature implementations (tasks, docs, chat, agent, settings)
-- **Core** (`core/`): Shared utilities (commands, storage, errors, utils, backup)
+- **Core** (`core/`): Shared utilities (commands, storage, errors, utils, backup, cost_tracker)
 - **Data** (`data/`): JSON-based persistent storage
 
 ### Technology Stack
@@ -216,6 +217,13 @@ This enables context-aware command routing and statistics.
 }
 ```
 
+**Task ID System**:
+- **Pending tasks**: Numeric IDs (1, 2, 3...) - automatically reindexed when tasks are removed
+- **Completed tasks**: Letter IDs (a, b, c...) - allow distinguishing completed from pending tasks
+- After 26 completed tasks, IDs continue as aa, ab, ac, etc.
+- IDs are regenerated on each operation to maintain consistency
+```
+
 ### docs_metadata.json
 
 ```json
@@ -317,6 +325,323 @@ def _init_openai_client(self):
 
 ---
 
+## Cost Tracking System
+
+### Overview
+
+The cost tracking system (`core/cost_tracker.py`) provides comprehensive monitoring of OpenAI API usage across all features with per-operation breakdown, session tracking, and persistent history.
+
+### CostTracker Class
+
+**Purpose**: Centralized API cost tracking and reporting
+
+**Key Features**:
+- Per-operation cost breakdown
+- Session-level tracking
+- Persistent cost history
+- Multiple operation types support
+- Accurate token-based pricing
+
+### Architecture
+
+```
+┌──────────────────────────────────────────┐
+│         main.py (Initialization)         │
+│  cost_tracker = CostTracker(data_dir)    │
+└────────────┬─────────────────────────────┘
+             │
+      ┌──────┴──────┐
+      │             │
+┌─────▼──────┐ ┌───▼──────┐
+│  Modules   │ │  Core    │
+│            │ │          │
+│ - Tasks    │ │ - Tracker│
+│ - Docs     │◄┤ - PRICING│
+│ - Chat     │ │ - History│
+│ - Agent    │ │          │
+└────────────┘ └──────────┘
+      │
+      │
+┌─────▼──────────────────┐
+│  data/cost_history.json │
+└────────────────────────┘
+```
+
+### Pricing Configuration
+
+Defined in `CostTracker.PRICING` dictionary:
+
+```python
+PRICING = {
+    "gpt-4o": {
+        "input": 2.50,    # per 1M tokens
+        "output": 10.00
+    },
+    "gpt-4o-mini": {
+        "input": 0.150,   # per 1M tokens
+        "output": 0.600
+    }
+}
+```
+
+### Operation Types
+
+1. **task_summary**: AI-generated task summaries (gpt-4o-mini)
+2. **doc_summary**: AI-generated document summaries (gpt-4o-mini)
+3. **chat_message**: Interactive chat messages (gpt-4o)
+4. **task_analysis**: Task prioritization and insights (gpt-4o)
+5. **knowledge_synthesis**: Multi-document synthesis (gpt-4o)
+
+### API Call Tracking
+
+**Standard (Non-Streaming) Calls**:
+```python
+# In task_module.py, docs_module.py, agent_module.py
+response = self.openai_client.chat.completions.create(...)
+
+if self.cost_tracker and hasattr(response, 'usage') and response.usage:
+    self.cost_tracker.track_api_call(
+        operation_type='task_summary',
+        model="gpt-4o-mini",
+        input_tokens=response.usage.prompt_tokens,
+        output_tokens=response.usage.completion_tokens
+    )
+```
+
+**Streaming Calls** (Chat):
+```python
+# In chat_module.py
+stream = self.openai_client.chat.completions.create(..., stream=True)
+
+for chunk in stream:
+    # Process chunks...
+    
+    # Track from final chunk containing usage data
+    if hasattr(chunk, 'usage') and chunk.usage:
+        if self.cost_tracker:
+            self.cost_tracker.track_api_call(
+                operation_type='chat_message',
+                model="gpt-4o",
+                input_tokens=chunk.usage.prompt_tokens,
+                output_tokens=chunk.usage.completion_tokens
+            )
+```
+
+### Cost Calculation
+
+```python
+def track_api_call(self, operation_type, model, input_tokens, output_tokens):
+    # Get pricing for model
+    pricing = self.PRICING.get(model, self.PRICING["gpt-4o-mini"])
+    
+    # Calculate costs (pricing per 1M tokens)
+    input_cost = (input_tokens / 1_000_000) * pricing['input']
+    output_cost = (output_tokens / 1_000_000) * pricing['output']
+    total_cost = input_cost + output_cost
+    
+    # Update session totals
+    self.current_session['total_cost'] += total_cost
+    self.current_session['total_input_tokens'] += input_tokens
+    self.current_session['total_output_tokens'] += output_tokens
+    
+    # Update operation-specific tracking
+    if operation_type not in self.current_session['by_operation']:
+        self.current_session['by_operation'][operation_type] = {
+            'count': 0, 'cost': 0, 'input_tokens': 0, 'output_tokens': 0
+        }
+    
+    self.current_session['by_operation'][operation_type]['count'] += 1
+    self.current_session['by_operation'][operation_type]['cost'] += total_cost
+    self.current_session['by_operation'][operation_type]['input_tokens'] += input_tokens
+    self.current_session['by_operation'][operation_type]['output_tokens'] += output_tokens
+```
+
+### Session Management
+
+**Session Start** (automatic):
+```python
+def __init__(self, data_dir):
+    self.cost_history_path = os.path.join(data_dir, 'cost_history.json')
+    self.current_session = {
+        'session_start': datetime.now().isoformat(),
+        'total_cost': 0,
+        'total_input_tokens': 0,
+        'total_output_tokens': 0,
+        'by_operation': {}
+    }
+```
+
+**Session Save** (on exit):
+```python
+def save_session(self):
+    if self.current_session['total_cost'] == 0:
+        return  # Don't save empty sessions
+    
+    # Load history
+    history = self._load_history()
+    
+    # Add current session with timestamp
+    history['sessions'].append({
+        'timestamp': self.current_session['session_start'],
+        'total_cost': self.current_session['total_cost'],
+        'total_input_tokens': self.current_session['total_input_tokens'],
+        'total_output_tokens': self.current_session['total_output_tokens'],
+        'by_operation': self.current_session['by_operation']
+    })
+    
+    # Save to file
+    with open(self.cost_history_path, 'w') as f:
+        json.dump(history, f, indent=2)
+```
+
+### Data Structure
+
+**cost_history.json**:
+```json
+{
+  "sessions": [
+    {
+      "timestamp": "2025-11-24T10:30:45.123456",
+      "total_cost": 0.0692,
+      "total_input_tokens": 15234,
+      "total_output_tokens": 8945,
+      "by_operation": {
+        "chat_message": {
+          "count": 3,
+          "cost": 0.0234,
+          "input_tokens": 5000,
+          "output_tokens": 2000
+        },
+        "task_summary": {
+          "count": 5,
+          "cost": 0.0012,
+          "input_tokens": 1234,
+          "output_tokens": 567
+        },
+        "doc_summary": {
+          "count": 2,
+          "cost": 0.0089,
+          "input_tokens": 8000,
+          "output_tokens": 5000
+        }
+      }
+    }
+  ]
+}
+```
+
+### Integration Points
+
+**Module Initialization** (main.py):
+```python
+from core.cost_tracker import CostTracker
+
+# Initialize tracker
+cost_tracker = CostTracker(data_manager.data_dir)
+
+# Pass to all modules
+task_manager = TaskManager(data_manager, registry, cost_tracker)
+document_manager = DocumentManager(data_manager, registry, cost_tracker)
+agent_manager = AgentManager(data_manager, task_manager, registry, document_manager, cost_tracker)
+chat_manager = ChatManager(data_manager, registry, agent_manager, cost_tracker)
+```
+
+**Stats Command** (main.py):
+```python
+def cmd_stats():
+    # ... existing stats ...
+    
+    # API Usage & Costs section
+    print("\nAPI Usage & Costs:")
+    
+    # Current session
+    summary = cost_tracker.get_session_summary()
+    if summary['total_cost'] > 0:
+        print("  Current Session:")
+        for op_type, data in summary['by_operation'].items():
+            print(f"    • {op_type.replace('_', ' ').title()}: ${data['cost']:.4f} ({data['count']} calls)")
+        print(f"    {'─' * 37}")
+        print(f"    Total: ${summary['total_cost']:.4f}")
+    
+    # Previous session
+    prev_cost = cost_tracker.get_previous_session_cost()
+    if prev_cost > 0:
+        print(f"\n  Previous Session: ${prev_cost:.4f}")
+    
+    # All-time total
+    all_time = cost_tracker.get_all_time_cost()
+    if all_time > 0:
+        print(f"  All-Time Total: ${all_time:.4f}")
+```
+
+**Exit Handler** (main.py):
+```python
+def exit_command(*args):
+    # Display session summary
+    summary = cost_tracker.get_session_summary()
+    if summary['total_cost'] > 0:
+        print("\n" + "=" * 60)
+        print("💰 Session API Cost Summary")
+        print("=" * 60)
+        print(f"Total API calls: {sum(op['count'] for op in summary['by_operation'].values())}")
+        print(f"Total cost: ${summary['total_cost']:.4f}")
+        print("\nBreakdown by operation:")
+        for op_type, data in summary['by_operation'].items():
+            print(f"  • {op_type}: ${data['cost']:.4f} ({data['count']} calls)")
+        print("=" * 60)
+    
+    # Save session
+    cost_tracker.save_session()
+    
+    print("Goodbye!")
+    sys.exit(0)
+```
+
+### Error Handling
+
+**Missing Usage Data**:
+```python
+if self.cost_tracker and hasattr(response, 'usage') and response.usage:
+    # Track only if usage data available
+    self.cost_tracker.track_api_call(...)
+```
+
+**Graceful Degradation**:
+- If `cost_tracker=None`, operations continue normally
+- Missing models default to gpt-4o-mini pricing
+- File errors during history save don't crash application
+
+### Testing
+
+**Unit Tests**:
+```python
+def test_cost_tracking():
+    tracker = CostTracker(temp_dir)
+    
+    # Track operation
+    tracker.track_api_call('test', 'gpt-4o-mini', 100, 50)
+    
+    # Verify calculation
+    expected = (100 * 0.150 + 50 * 0.600) / 1_000_000
+    summary = tracker.get_session_summary()
+    assert abs(summary['total_cost'] - expected) < 1e-10
+```
+
+**Integration Testing**:
+- Verify all API calls tracked
+- Check session persistence
+- Validate cost calculations
+- Test exit handlers
+
+### Performance Impact
+
+- **Minimal overhead**: Simple arithmetic operations
+- **No API calls**: Tracking is local only
+- **Async-safe**: No blocking operations
+- **Memory efficient**: Single session in memory
+
+---
+
 ## Code Organization
 
 ### Project Structure
@@ -334,7 +659,8 @@ final-project/
 │   ├── storage.py         # Data persistence
 │   ├── errors.py          # Custom exceptions
 │   ├── utils.py           # Helper functions
-│   └── backup.py          # Backup management
+│   ├── backup.py          # Backup management
+│   └── cost_tracker.py    # API cost tracking
 │
 ├── modules/               # Feature modules
 │   ├── __init__.py
@@ -356,6 +682,7 @@ final-project/
     ├── docs_metadata.json
     ├── chat_history.json
     ├── settings.json
+    ├── cost_history.json  # API cost tracking
     ├── docs/
     ├── doc_cache/
     └── backups/
